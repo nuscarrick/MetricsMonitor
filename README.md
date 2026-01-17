@@ -5,6 +5,8 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1348" height="662" alt="1d" src="https://github.com/user-attachments/assets/96b5cdd7-ba36-48c4-b206-0ed803d4171d" />
 <img width="1177" height="174" alt="image" src="https://github.com/user-attachments/assets/82e85238-e51d-4b99-bccf-e70245c5b85f" />
 <img width="1178" height="173" alt="image" src="https://github.com/user-attachments/assets/9d961dc7-fd15-4e52-88a8-6b6680d0cb27" />
+<img width="1178" height="174" alt="grafik" src="https://github.com/user-attachments/assets/6ea707e1-8d87-466d-bbb4-b0f266e3586d" />
+
 
 ## v2.1
 
