@@ -1,5 +1,5 @@
 ﻿ /*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (C# / NAudio)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.1)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
