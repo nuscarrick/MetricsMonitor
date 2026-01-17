@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.0)    //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.1)    //
 //                                                             //
-//  by Highpoint               last update: 14.01.2026         //
+//  by Highpoint               last update: 17.01.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -16,6 +16,7 @@ const sampleRate = 48000;    // Do not touch - this value is automatically updat
 const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -39,11 +40,12 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
   // =========================================================
   // Plugin version and update check configuration
   // =========================================================
-  const plugin_version = "2.0";
+  const plugin_version = "2.1";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";

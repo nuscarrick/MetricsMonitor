@@ -105,16 +105,4 @@
   outline: none !important;
 }
 
-/* Werte-Anzeige über dem Balken */
-.value-display {
-  text-align: center;
-  font-size: 10px !important;
-  line-height: 12px;
-  height: 12px;
-  color: #ddd;
-  font-family: inherit;
-  margin-left: -1px;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  opacity: 0.3; 
-}
+

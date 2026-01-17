@@ -1,11 +1,11 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.0)    //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.1)    //
 //                                                              //
-//  by Highpoint               last update: 14.01.2026          //
+//  by Highpoint               last update: 17.01.2026          //
 //                                                              //
 //  Thanks for support by                                       //
-//  Jeroen Platenkamp, Bkram, Wtkyl, AmateurAudioDude         //
+//  Jeroen Platenkamp, Bkram, Wtkyl, AmateurAudioDude           //
 //                                                              //
 //  https://github.com/Highpoint2000/metricsmonitor             //
 //                                                              //
@@ -26,6 +26,7 @@ const { spawn, execSync } = require("child_process");
 const WebSocket = require("ws");
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 
 // Import core server utilities for logging and configuration
 // These paths assume the standard file structure of the FM-DX-Webserver
@@ -54,6 +55,7 @@ const defaultConfig = {
   MPXmode: "off",               // Mode switch (off/auto/on)
   MPXStereoDecoder: "off",      // Internal stereo decoder switch
   MPXInputCard: "",             // Input device name (if empty, uses config.json device)
+  MPXTiltCalibration: 0.0,    // NEW: Tilt Correction in microseconds (0 = off)
 
   // 2. Calibration Offsets (Meters)
   MeterInputCalibration: 0.0,
@@ -195,6 +197,7 @@ function normalizePluginConfig(json) {
     MPXmode: typeof json.MPXmode !== "undefined" ? json.MPXmode : defaultConfig.MPXmode,
     MPXStereoDecoder: typeof json.MPXStereoDecoder !== "undefined" ? json.MPXStereoDecoder : defaultConfig.MPXStereoDecoder,
     MPXInputCard: typeof json.MPXInputCard !== "undefined" ? json.MPXInputCard : defaultConfig.MPXInputCard,
+    MPXTiltCalibration: typeof json.MPXTiltCalibration !== "undefined" ? json.MPXTiltCalibration : defaultConfig.MPXTiltCalibration,
 
     MeterInputCalibration: typeof json.MeterInputCalibration !== "undefined" ? json.MeterInputCalibration : defaultConfig.MeterInputCalibration,
     MeterPilotCalibration: typeof json.MeterPilotCalibration !== "undefined" ? json.MeterPilotCalibration : defaultConfig.MeterPilotCalibration,
@@ -343,6 +346,7 @@ let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
 let LOCK_VOLUME_SLIDER;
 let ENABLE_SPECTRUM_ON_LOAD;
+let MPX_TILT_CALIBRATION;
 
 // Calibrations
 let METER_PILOT_CALIBRATION;
@@ -391,11 +395,11 @@ function applyConfig(newConfig) {
     SPECTRUM_SEND_INTERVAL = Number(configPlugin.SpectrumSendInterval) || 30;
     
     METER_INPUT_CALIBRATION_DB = Number(configPlugin.MeterInputCalibration) || 0;
-    METER_GAIN_FACTOR = Math.pow(10, METER_INPUT_CALIBRATION_DB / 20.0);
-    
+    METER_GAIN_FACTOR = Math.pow(10, METER_INPUT_CALIBRATION_DB / 20.0);  
+    MPX_TILT_CALIBRATION = Number(configPlugin.MPXTiltCalibration) || 0.0;
+
     SPECTRUM_INPUT_CALIBRATION_DB = Number(configPlugin.SpectrumInputCalibration) || 0;
     SPECTRUM_GAIN_FACTOR = Math.pow(10, SPECTRUM_INPUT_CALIBRATION_DB / 20.0);
-    
     SPECTRUM_ATTACK_LEVEL = Number(configPlugin.SpectrumAttackLevel) || 3;
     SPECTRUM_DECAY_LEVEL = Number(configPlugin.SpectrumDecayLevel) || 15;
     
@@ -430,7 +434,7 @@ function applyConfig(newConfig) {
     ENABLE_MPX = isModule2Active; 
     ENABLE_ANALYZER = ENABLE_MPX;
 
-    logInfo("[MPX Config] New configuration has been applied to the server.");
+    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us`);
 }
 
 /**
@@ -607,6 +611,7 @@ function updateSettings() {
           `const MPXmode = "${MPX_MODE}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXStereoDecoder = "${MPX_STEREO_DECODER}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXInputCard = "${MPX_INPUT_CARD}";    // Do not touch - this value is automatically updated via the config file\n` +
+          `const MPXTiltCalibration = ${MPX_TILT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterInputCalibration = ${METER_INPUT_CALIBRATION_DB};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterPilotCalibration = ${METER_PILOT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterMPXCalibration = ${METER_MPX_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -661,6 +666,7 @@ function updateSettings() {
         .replace(/^\s*const\s+StereoBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+AudioMeterBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterInputCalibration\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MPXTiltCalibration\s*=.*;[^\n]*\n?/gm, "") // NEW
         .replace(/^\s*const\s+MeterPilotCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterMPXCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterRDSCalibration\s*=.*;[^\n]*\n?/gm, "")
@@ -1137,6 +1143,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   
   // Separate Calibration Logs
   logInfo(`[MPX] MeterInputCalibration (Meters) ? ${METER_INPUT_CALIBRATION_DB} dB (Factor: ${METER_GAIN_FACTOR.toFixed(3)})`);
+  logInfo(`[MPX] MPXTiltCalibration (Input Tilt) ? ${MPX_TILT_CALIBRATION.toFixed(1)} us`);
   logInfo(`[MPX] SpectrumInputCalibration (Spectrum) ? ${SPECTRUM_INPUT_CALIBRATION_DB} dB (Factor: ${SPECTRUM_GAIN_FACTOR.toFixed(3)})`);
 
   if (MPX_INPUT_CARD !== "") {
@@ -1196,7 +1203,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   const MAX_WS_BACKLOG_BYTES = 256 * 1024;
 
   logInfo(
-    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain)."
+    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain, Tilt Correction)."
   );
 
   // ====================================================================================
@@ -1252,16 +1259,16 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   connectDataPluginsWs();
 
   // ====================================================================================
-  //  INPUT HANDLERS
+  //  INPUT HANDLERS (Dual Mode Support)
   // ====================================================================================
 
   let currentPilotPeak = 0;
   let currentRdsPeak = 0;
   let currentMaxPeak = 0;
   let currentNoiseFloor = 0;
-  let latestMpxFrame = null;
-
-  const readline = require('readline');
+  
+  let latestMpxFrame = null;   // Spectrum (s)
+  let latestScopeFrame = null; // Oscilloscope (o)
 
   function setupJsonReader(childProcess) {
       if (!childProcess || !childProcess.stdout) return;
@@ -1282,8 +1289,14 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
               if (typeof data.r === 'number') currentRdsPeak = data.r;
               if (typeof data.m === 'number') currentMaxPeak = data.m;
               
+              // Process Spectrum Data (s)
               if (Array.isArray(data.s) && data.s.length > 0) {
                   latestMpxFrame = data.s;
+              }
+              
+              // Process Oscilloscope Data (o)
+              if (Array.isArray(data.o) && data.o.length > 0) {
+                  latestScopeFrame = data.o;
               }
 
           } catch (e) { }
@@ -1295,108 +1308,151 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   // ====================================================================================
   let rec = null;
   let targetDevice = "";
-  
-  if (MPX_MODE === "off" && MPX_INPUT_CARD === "") {
-      logInfo("[MPX] Mode is 'off' -> MPX Capture Disabled.");
-  } 
-  else {
-      // Determine Input Device
-      if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
-          targetDevice = MPX_INPUT_CARD;
-          logInfo(`[MPX] Using device from plugin config: "${targetDevice}"`);
-      } 
-      else {
-          // If no specific MPXInputCard is set, ALWAYS fallback to main config
-          if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice && mainConfig.audio.audioDevice !== "") {
-              targetDevice = mainConfig.audio.audioDevice;
-              logInfo(`[MPX] MPXInputCard empty -> Fallback to main config audioDevice: "${targetDevice}"`);
-          } else {
-              targetDevice = "Default";
-              logWarn("[MPX] MPXInputCard empty AND main config empty -> Using 'Default'.");
-          }
+
+  /* ============================
+     RECONNECT / RETRY STATE
+     ============================ */
+  let resetTimeout = null;
+  let retryTimeout = null;
+  let retryAttempts = 0;
+  const RECONNECT_MAX_RETRIES = 30;
+  const RECONNECT_RETRY_DELAY = 15;
+
+  function attemptReconnect() {
+      if (retryAttempts >= RECONNECT_MAX_RETRIES) {
+          logError("[MPX] Maximum retry attempts reached. MPXCapture will not restart.");
+          return;
       }
+
+      retryAttempts += 1;
+
+      logInfo(
+          `[MPX] Waiting for ${RECONNECT_RETRY_DELAY} seconds before attempting to reconnect...`
+      );
+
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (resetTimeout) clearTimeout(resetTimeout);
+
+      retryTimeout = setTimeout(() => {
+          startMPXCapture();
+
+          resetTimeout = setTimeout(() => {
+              retryAttempts = 0;
+          }, (RECONNECT_RETRY_DELAY * 1000) + (30 * 1000));
+      }, RECONNECT_RETRY_DELAY * 1000);
   }
 
-  // --- STARTUP ---
+  function startMPXCapture() {
 
-  if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "") && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
+      logInfo(`[MPX] Attempt #${retryAttempts + 1} to start MPXCapture...`);
 
-    if (osPlatform !== "win32") {
-        try { fs.chmodSync(MPX_EXE_PATH, 0o755); } catch (e) {}
-    }
+      if (MPX_MODE === "off" && MPX_INPUT_CARD === "") {
+          logInfo("[MPX] Mode is 'off' -> MPX Capture Disabled.");
+          return;
+      } 
+      else {
+          // Determine Input Device
+          if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
+              targetDevice = MPX_INPUT_CARD;
+              logInfo(`[MPX] Using device from plugin config: "${targetDevice}"`);
+          } 
+          else {
+              // If no specific MPXInputCard is set, ALWAYS fallback to main config
+              if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice && mainConfig.audio.audioDevice !== "") {
+                  targetDevice = mainConfig.audio.audioDevice;
+                  logInfo(`[MPX] MPXInputCard empty -> Fallback to main config audioDevice: "${targetDevice}"`);
+              } else {
+                  targetDevice = "Default";
+                  logWarn("[MPX] MPXInputCard empty AND main config empty -> Using 'Default'.");
+              }
+          }
+      }
 
-    logInfo(`[MPX] Starting MPXCapture`);
+      // --- STARTUP ---
 
-    /* =====================================================
-       WINDOWS: MPXCapture opens Audio itself
-       ===================================================== */
-    if (osPlatform === "win32") {
+      if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "") && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
 
-        logInfo(
-            `[MPX] Direct audio mode (Windows) | Rate=${SAMPLE_RATE}, Dev="${targetDevice}", FFT=${FFT_SIZE}`
-        );
+        if (osPlatform !== "win32") {
+            try { fs.chmodSync(MPX_EXE_PATH, 0o755); } catch (e) {}
+        }
 
-        const absConfigPath = path.resolve(configFilePath);
-        const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+        logInfo(`[MPX] Starting MPXCapture`);
 
-        logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}"`);
+        /* =====================================================
+           WINDOWS: MPXCapture opens Audio itself
+           ===================================================== */
+        if (osPlatform === "win32") {
 
-        rec = spawn(
-            MPX_EXE_PATH,
-            [
-                String(SAMPLE_RATE),
-                deviceArg,
-                String(FFT_SIZE),
-                absConfigPath
-            ],
-            {
+            logInfo(
+                `[MPX] Direct audio mode (Windows) | Rate=${SAMPLE_RATE}, Dev="${targetDevice}", FFT=${FFT_SIZE}`
+            );
 
-                cwd: path.resolve(__dirname, "../../"), 
-                env: {
-                    ...process.env,
-                    PYTHONUNBUFFERED: "1"
+            const absConfigPath = path.resolve(configFilePath);
+            const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+
+            logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}"`);
+
+            rec = spawn(
+                MPX_EXE_PATH,
+                [
+                    String(SAMPLE_RATE),
+                    deviceArg,
+                    String(FFT_SIZE),
+                    absConfigPath
+                ],
+                {
+
+                    cwd: path.resolve(__dirname, "../../"), 
+                    env: {
+                        ...process.env,
+                        PYTHONUNBUFFERED: "1"
+                    }
                 }
-            }
-        );
+            );
 
-    /* =====================================================
-       LINUX: arecord -> stdin -> MPXCapture
-       ===================================================== */
-    } else {
-        const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
-        const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+        /* =====================================================
+           LINUX: arecord -> stdin -> MPXCapture
+           ===================================================== */
+        } else {
+            const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
+            const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
-        logInfo(
-        `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}"`
-        );
+            logInfo(
+            `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}"`
+            );
 
-        rec = spawn("bash", ["-c", `
+            rec = spawn("bash", ["-c", `
     arecord -F 25000 -D "${deviceArg}" \
     -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
     -t raw -q \
     | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}"
     `], {
-        stdio: ["ignore", "pipe", "pipe"]
+            stdio: ["ignore", "pipe", "pipe"]
+            });
+        }
+
+        /* =====================================================
+           STDERR -> Log
+           ===================================================== */
+        rec.stderr.on("data", (d) => {
+            const msg = d.toString().trim();
+            if (msg.length) logInfo("[MPXCapture]", msg);
+        });
+
+        /* =====================================================
+           JSON Reader (stdout)
+           ===================================================== */
+        setupJsonReader(rec);
+
+        rec.on("close", (code) => {
+            logInfo("[MPX] MPXCapture exited with code:", code);
+            attemptReconnect();
         });
     }
+  }
 
-    /* =====================================================
-       STDERR -> Log
-       ===================================================== */
-    rec.stderr.on("data", (d) => {
-        const msg = d.toString().trim();
-        if (msg.length) logInfo("[MPXCapture]", msg);
-    });
-
-    /* =====================================================
-       JSON Reader (stdout)
-       ===================================================== */
-    setupJsonReader(rec);
-
-    rec.on("close", (code) => {
-        logInfo("[MPX] MPXCapture exited with code:", code);
-    });
-}
+  // Initial start
+  startMPXCapture();
 
 // ====================================================================================
 //  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling)
@@ -1503,14 +1559,21 @@ setInterval(() => {
     // -----------------------------------------------------------------------
     // SEND TO CLIENT
     // -----------------------------------------------------------------------
+    // Send both Spectrum (value) and Scope (scope) arrays
     let finalSpectrum = [];
     if (latestMpxFrame && latestMpxFrame.length > 0) {
         finalSpectrum = latestMpxFrame;
     }
+    
+    let finalScope = [];
+    if (latestScopeFrame && latestScopeFrame.length > 0) {
+        finalScope = latestScopeFrame;
+    }
 
     const payload = JSON.stringify({
       type: "MPX", 
-      value: finalSpectrum,
+      value: finalSpectrum, // 's' data from C#
+      scope: finalScope,    // 'o' data from C#
       peak: out_mpx, 
       pilotKHz: out_pilot, 
       rdsKHz: out_rds,

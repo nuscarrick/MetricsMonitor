@@ -6,12 +6,11 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1177" height="174" alt="image" src="https://github.com/user-attachments/assets/82e85238-e51d-4b99-bccf-e70245c5b85f" />
 <img width="1178" height="173" alt="image" src="https://github.com/user-attachments/assets/9d961dc7-fd15-4e52-88a8-6b6680d0cb27" />
 
-## v2.0
+## v2.1
 
-- Using our own program library for spectrum analysis and display calculation -> more resource-efficient and higher measurement accuracy
-- New scale variables for PILOT, MPX and RDS (see calibration)
-- Automatic detection of the MPX channel
-- Fixed issues with relative image paths
+- Integration of an oscilloscope (click on MPX Spectrum title in the analyzer!)
+- New variable for adjusting the tilt at the sound card input (see configuration options!)
+- Sound card reconnect logic built in (Tnx to AmateurAudioDude)
 
 ## Important note for this version: 
 
@@ -60,7 +59,8 @@ The following variables can be changed in the metricsmonitor.json config file:
     "MPXmode": "off",                //  Configure the MPX behavior of the TEF receiver here: "off" = no MPX output / "on" = always MPX output / "auto" = MPX automatic switching (equalizer and signal meter module in stereo - PILOT/MPX/RDS meter module in mono - spectrum analyzer in mono)
     "MPXStereoDecoder": "off",	     //  Set the switch to "on" if you are decoding the stereo signal from MPX with a stereo decoder. This will enable the optical mono/stereo indicator to function when MPXmode is set to "on". The default setting is "off".          
     "MPXInputCard": "",              //  Configure the sound input exclusive to MPX (e.g., for Linux: "plughw:CARD=Device" or Windows: "Microphone (HD USB Audio Device)")
-
+    "MPXTiltCalibration": 0,         //  Adjust the input slope of the sound card from -1000 µs to 1000 µs (default is 0)
+	
     /* Calibration Offsets (Meters) */
     "MeterInputCalibration": 0,      //  Increase or decrease the value as needed to adjust the input for the MPX gauges (Pilot, MPX, RDS). The default value is 0. 
     "MeterPilotCalibration": 0,      //  Calibrate the +/- level value for the Pilot level indicator (default = 0)
@@ -173,6 +173,7 @@ Option 3 - http://highpoint2000.selfhost.de:8080
 
 - The configuration file allows you to switch individual display modules on and off and define the click sequence. The various displays can also be calibrated there.
 - Press the CTRL key to select different zoom options in MPX + Signal analysis modes
+- Use the oscilloscope to adjust the tilt. Activate it by clicking on the "MPX Spectrum" text in the analyzer.
 
 Compatibility with all hardware components and platforms cannot be guaranteed. The receiver's output volume, as well as the technical characteristics of the hardware components, affect the display behavior and must be taken into account!!!
 
@@ -184,6 +185,13 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+## v2.0
+
+- Using our own program library for spectrum analysis and display calculation -> more resource-efficient and higher measurement accuracy
+- New scale variables for PILOT, MPX and RDS (see calibration)
+- Automatic detection of the MPX channel
+- Fixed issues with relative image paths
 
 ## v1.5
 

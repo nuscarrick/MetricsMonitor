@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.0)   //
+//  metricsmonitor-meters.js                        (V2.1)   //
 //                                                           //
-//  by Highpoint               last update: 07.01.2026       //
+//  by Highpoint               last update: 17.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -16,6 +16,7 @@ const sampleRate = 48000;    // Do not touch - this value is automatically updat
 const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -39,6 +40,7 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
     // Configuration constants (auto-updated by the server)
     // ==========================================================
@@ -47,39 +49,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     const ENABLE_DEBUG = false;
     const DEBUG_INTERVAL_MS = 2000;
     let lastDebugTime = 0;
-
-    // ==========================================================
-    // CSS INJECTION FOR RENDERING FIXES
-    // ==========================================================
-    const style = document.createElement('style');
-    style.innerHTML = `
-      /* Value display above the bar */
-      .value-display {
-        text-align: center;
-        font-size: 10px !important;
-        line-height: 12px;
-        height: 12px;
-        color: #ddd;
-        font-family: inherit;
-        margin-bottom: 2px;
-        white-space: nowrap;
-      }
-      /* Custom Peak Marker Style */
-      .segment.peak-flag {
-        opacity: 1.0 !important;
-        box-shadow: 0 0 4px rgba(255, 255, 255, 0.4);
-        z-index: 10;
-        /* Note: Background color is set dynamically via JS */
-      }
-      /* FIX: Transparent gaps that survive zooming */
-      .meter-bar .segment {
-        border-bottom: 1px solid transparent !important; /* The gap space */
-        background-clip: padding-box !important;         /* Cut color at border */
-        margin-bottom: 0 !important;                     /* No margin needed */
-        box-sizing: border-box;                          /* Height includes border */
-      }
-    `;
-    document.head.appendChild(style);
 
     // Sample rate dependent flags
     const RDS_ENABLED = (sampleRate === 192000);
@@ -271,8 +240,8 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // Helper to calculate color for MPX Meter
     function getMpxColorForIndex(i, totalSegments) {
         const kHzMax = 120;
-        const idxGreenMax = Math.round((75 / kHzMax) * totalSegments);
-        const idxYellowMax = Math.round((80 / kHzMax) * totalSegments);
+        const idxGreenMax = Math.round((72.9 / kHzMax) * totalSegments);
+        const idxYellowMax = Math.round((75.1 / kHzMax) * totalSegments);
 
         const cSafe = parseRgb(MeterColorSafe);
         const cWarning = parseRgb(MeterColorWarning);
