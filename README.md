@@ -72,9 +72,9 @@ The following variables can be changed in the metricsmonitor.json config file:
     "MeterRDSCalibration": 0,        //  Calibrate the +/- level value for the RDS level indicator (default = 0)
 
     /* Meter Scales */
-    "MeterPilotScale": 200,          // Scale factor for Pilot deviation (default is 200)
+    "MeterPilotScale": 400,          // Scale factor for Pilot deviation (default is 400)
     "MeterMPXScale": 100,            // Scale factor for MPX deviation (default is 100)
-    "MeterRDSScale": 650,            // Scale factor for RDS deviation (default is 650)
+    "MeterRDSScale": 750,            // Scale factor for RDS deviation (default is 750)
 
     /* FFT / Spectrum Settings */
 	"fftSize": 512,                  //  Change the frequency sampling rate for the spectrum display. The higher the value (e.g. 1024, 2048, 4096), the better the frequency resolution, but also the higher the CPU load. The default and minimum value is 512.
