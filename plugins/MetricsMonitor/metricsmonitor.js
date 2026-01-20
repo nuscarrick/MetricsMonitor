@@ -46,7 +46,7 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
   // =========================================================
   // Plugin version and update check configuration
   // =========================================================
-  const plugin_version = "2.4";
+  const plugin_version = "2.2";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
