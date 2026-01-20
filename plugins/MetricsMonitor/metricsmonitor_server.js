@@ -1,11 +1,11 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.1)    //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.2)    //
 //                                                              //
-//  by Highpoint               last update: 17.01.2026          //
+//  by Highpoint                     last update: 20.01.2026    //
 //                                                              //
 //  Thanks for support by                                       //
-//  Jeroen Platenkamp, Bkram, Wtkyl, AmateurAudioDude           //
+//  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
 //                                                              //
 //  https://github.com/Highpoint2000/metricsmonitor             //
 //                                                              //
@@ -27,6 +27,7 @@ const WebSocket = require("ws");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const dgram = require("dgram"); // NEW: Required for UDP communication
 
 // Import core server utilities for logging and configuration
 // These paths assume the standard file structure of the FM-DX-Webserver
@@ -64,9 +65,9 @@ const defaultConfig = {
   MeterRDSCalibration: 0.0,
 
   // 3. Meter Scales 
-  MeterPilotScale: 200.0,       // Default factor for Pilot
+  MeterPilotScale: 400.0,       // Default factor for Pilot
   MeterMPXScale: 100.0,         // Default factor for MPX 
-  MeterRDSScale: 650.0,         // Default factor for RDS
+  MeterRDSScale: 750.0,         // Default factor for RDS
 
   // 4. FFT / Spectrum Settings
   fftSize: 512,                 // FFT Window size (resolution)
@@ -88,6 +89,7 @@ const defaultConfig = {
   CANVAS_SEQUENCE: "2,4",       // Order of Canvas elements
   LockVolumeSlider: true,       // Lock the main volume slider in UI
   EnableSpectrumOnLoad: false,  // Start spectrum automatically
+  EnableAnalyzerAdminMode: false, // Enable Admin/Debug features in Analyzer
 
   // 8. Colors & Peaks
   MeterColorSafe: "rgb(0, 255, 0)",     // RGB Array (Green)
@@ -224,6 +226,7 @@ function normalizePluginConfig(json) {
     CANVAS_SEQUENCE: typeof json.CANVAS_SEQUENCE !== "undefined" ? json.CANVAS_SEQUENCE : defaultConfig.CANVAS_SEQUENCE,
     LockVolumeSlider: typeof json.LockVolumeSlider !== "undefined" ? json.LockVolumeSlider : defaultConfig.LockVolumeSlider,
     EnableSpectrumOnLoad: typeof json.EnableSpectrumOnLoad !== "undefined" ? json.EnableSpectrumOnLoad : defaultConfig.EnableSpectrumOnLoad,
+    EnableAnalyzerAdminMode: typeof json.EnableAnalyzerAdminMode !== "undefined" ? json.EnableAnalyzerAdminMode : defaultConfig.EnableAnalyzerAdminMode,
     
     MeterColorSafe: typeof json.MeterColorSafe !== "undefined" ? json.MeterColorSafe : defaultConfig.MeterColorSafe,
     MeterColorWarning: typeof json.MeterColorWarning !== "undefined" ? json.MeterColorWarning : defaultConfig.MeterColorWarning,
@@ -346,6 +349,7 @@ let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
 let LOCK_VOLUME_SLIDER;
 let ENABLE_SPECTRUM_ON_LOAD;
+let ENABLE_ANALYZER_ADMIN_MODE;
 let MPX_TILT_CALIBRATION;
 
 // Calibrations
@@ -410,6 +414,7 @@ function applyConfig(newConfig) {
     
     LOCK_VOLUME_SLIDER = configPlugin.LockVolumeSlider === true;
     ENABLE_SPECTRUM_ON_LOAD = configPlugin.EnableSpectrumOnLoad === true;
+    ENABLE_ANALYZER_ADMIN_MODE = configPlugin.EnableAnalyzerAdminMode === true;
     
     METER_PILOT_CALIBRATION = Number(configPlugin.MeterPilotCalibration) || 0.0;
     METER_MPX_CALIBRATION = Number(configPlugin.MeterMPXCalibration) || 0.0;
@@ -630,6 +635,7 @@ function updateSettings() {
           `const CANVAS_SEQUENCE = ${CANVAS_SEQUENCE_JS};    // Do not touch - this value is automatically updated via the config file\n` +
           `const LockVolumeSlider = ${LOCK_VOLUME_SLIDER};    // Do not touch - this value is automatically updated via the config file\n` +
           `const EnableSpectrumOnLoad = ${ENABLE_SPECTRUM_ON_LOAD};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const EnableAnalyzerAdminMode = ${ENABLE_ANALYZER_ADMIN_MODE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorSafe = ${METER_COLOR_SAFE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorWarning = ${METER_COLOR_WARNING};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorDanger = ${METER_COLOR_DANGER};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -688,6 +694,7 @@ function updateSettings() {
         .replace(/^\s*const\s+MPXInputCard\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+LockVolumeSlider\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+EnableSpectrumOnLoad\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+EnableAnalyzerAdminMode\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorSafe\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorWarning\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorDanger\s*=.*;[^\n]*\n?/gm, "")
@@ -1201,6 +1208,10 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   }
 
   const MAX_WS_BACKLOG_BYTES = 256 * 1024;
+  
+  // UDP Setup for Communication with C# binary
+  const udpClient = dgram.createSocket("udp4");
+  const UDP_CONTROL_PORT = 60001; // Port on which C# process will listen
 
   logInfo(
     "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain, Tilt Correction)."
@@ -1215,6 +1226,10 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   let reconnectTimer = null;
   let backpressureHits = 0;
   const MAX_BACKPRESSURE_HITS = 200;
+  
+  // Heartbeat tracking for Spectrum Calculation
+  let lastSpectrumHeartbeat = 0;
+  let spectrumIsActive = false;
 
   function connectDataPluginsWs() {
     const url = `ws://127.0.0.1:${SERVER_PORT}/data_plugins`;
@@ -1253,7 +1268,15 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
       logError("[MPX] /data_plugins WebSocket error:", err);
     });
 
-    dataPluginsWs.on("message", () => {});
+    // Listen for client messages (Heartbeats)
+    dataPluginsWs.on("message", (raw) => {
+        try {
+            const msg = JSON.parse(raw);
+            if (msg.type === "MPX" && msg.cmd === "spectrum_heartbeat") {
+                lastSpectrumHeartbeat = Date.now();
+            }
+        } catch(e) {}
+    });
   }
 
   connectDataPluginsWs();
@@ -1290,12 +1313,12 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
               if (typeof data.m === 'number') currentMaxPeak = data.m;
               
               // Process Spectrum Data (s)
-              if (Array.isArray(data.s) && data.s.length > 0) {
+              if (Array.isArray(data.s)) {
                   latestMpxFrame = data.s;
               }
               
               // Process Oscilloscope Data (o)
-              if (Array.isArray(data.o) && data.o.length > 0) {
+              if (Array.isArray(data.o)) {
                   latestScopeFrame = data.o;
               }
 
@@ -1390,7 +1413,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
             const absConfigPath = path.resolve(configFilePath);
             const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
-            logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}"`);
+            logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}" (UDP Port: ${UDP_CONTROL_PORT})`);
 
             rec = spawn(
                 MPX_EXE_PATH,
@@ -1398,7 +1421,8 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
                     String(SAMPLE_RATE),
                     deviceArg,
                     String(FFT_SIZE),
-                    absConfigPath
+                    absConfigPath,
+                    String(UDP_CONTROL_PORT) // Arg 4: UDP Port
                 ],
                 {
 
@@ -1418,14 +1442,17 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
             const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
             logInfo(
-            `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}"`
+            `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}" (UDP Port: ${UDP_CONTROL_PORT})`
             );
 
+            // Note on Linux: We are piping audio to STDIN.
+            // We pass the UDP port as the last argument so C# can listen on it.
+            
             rec = spawn("bash", ["-c", `
     arecord -F 25000 -D "${deviceArg}" \
     -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
     -t raw -q \
-    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}"
+    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
     `], {
             stdio: ["ignore", "pipe", "pipe"]
             });
@@ -1453,6 +1480,32 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
   // Initial start
   startMPXCapture();
+
+  // ====================================================================================
+  //  Spectrum Activity Watchdog (Optimized CPU) - UDP VERSION
+  // ====================================================================================
+  setInterval(() => {
+     const now = Date.now();
+     // If heartbeat received within last 4 seconds, keep active
+     const isActive = (now - lastSpectrumHeartbeat < 4000);
+
+     if (isActive !== spectrumIsActive) {
+         spectrumIsActive = isActive;
+         
+         // Send command to C/C# process via UDP
+         const command = spectrumIsActive ? "SPECTRUM=1" : "SPECTRUM=0";
+         const message = Buffer.from(command);
+
+         udpClient.send(message, UDP_CONTROL_PORT, '127.0.0.1', (err) => {
+             if (err) {
+                 logWarn("[MPX] Failed to send UDP command to C/C# process: " + err);
+             } else {
+                 if(spectrumIsActive) logInfo("[MPX] Spectrum Analyzer: Active (Heartbeat detected)");
+                 else logInfo("[MPX] Spectrum Analyzer: Idle (No clients)");
+             }
+         });
+     }
+  }, 1000);
 
 // ====================================================================================
 //  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling)
@@ -1560,6 +1613,7 @@ setInterval(() => {
     // SEND TO CLIENT
     // -----------------------------------------------------------------------
     // Send both Spectrum (value) and Scope (scope) arrays
+    // Note: These might be empty arrays if spectrumIsActive is false
     let finalSpectrum = [];
     if (latestMpxFrame && latestMpxFrame.length > 0) {
         finalSpectrum = latestMpxFrame;

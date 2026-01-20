@@ -1,17 +1,19 @@
-﻿ /*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.1)
+﻿/*
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.2)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
  * - Precision Pilot Measurement (IQ demod + RMS)
  * - Precision RDS Measurement (IQ demod + RMS) with Dual-Mode reference
  * - Pilot-present gating
- * - Real-time FFT Spectrum AND Oscilloscope
+ * - Real-time FFT Spectrum AND Oscilloscope (Parallel Output)
  * - Dynamic Config Reload
  * - MPX TruePeak (Catmull-Rom 4x/8x)
- * - DC Blocker (Robust High-pass) 
+ * - DC Blocker (Robust High-pass, < 1Hz) 
  * - ITU-R BS.412 MPX Power Measurement (60s Integration)
- * - Tilt Correction (Stabilized)
+ * - Tilt Correction (Stabilized Linear Gain Method)
+ * - Decoupled Spectrum/Meter Calibration
+ * - CPU Optimization: Spectrum/Scope calculation is gated via UDP commands
  *
  * Compile Windows (x64/x86):
  * dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
@@ -25,7 +27,10 @@ using System.Numerics;
 using System.Globalization;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Text;
+using System.Net;
+using System.Net.Sockets;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
@@ -34,16 +39,17 @@ using NAudio.Wave;
 // ====================================================================================
 public static class Config
 {
-    // Meter Calibrations
+    // Independent Calibrations (dB)
     public static float MeterInputCalibrationDB = 0.0f;
-    public static float MPXTiltCalibrationUs = 0.0f; 
-    
-    // Spectrum Calibrations
     public static float SpectrumInputCalibrationDB = 0.0f;
+    
+    public static float MPXTiltCalibration = 0.0f; 
+    
+    // Calculated Linear Gains
     public static float MeterGain = 1.0f;
     public static float SpectrumGain = 1.0f;
 
-    // Scaling Factors
+    // Scaling Factors (Visualization)
     public static float MeterPilotScale = 1.0f; 
     public static float MeterMPXScale = 100.0f;
     public static float MeterRDSScale = 1.0f;
@@ -51,11 +57,14 @@ public static class Config
     // Visual Dynamics
     public static float SpectrumAttack = 0.25f;
     public static float SpectrumDecay = 0.15f;
-    public static int SpectrumSendInterval = 30; // ms
+    public static int SpectrumSendInterval = 15; // ~66 FPS
 
     // Processing Options
     public static int TruePeakFactor = 8;
     public static int MPX_LPF_100kHz = 1;
+
+    // State Control
+    public static volatile bool EnableSpectrum = false; // Default OFF until requested
 
     private static string _configPath = "metricsmonitor.json";
     private static DateTime _lastModTime;
@@ -107,19 +116,21 @@ public static class Config
                     return (int)MathF.Round(f);
                 }
 
-                float mGain = GetFloat("MeterInputCalibration", -9999f);
-                if (mGain > -9000f) {
-                    MeterInputCalibrationDB = mGain;
-                    MeterGain = (float)Math.Pow(10.0, mGain / 20.0);
+                // 1. Meter Gain Calculation
+                float mGainDB = GetFloat("MeterInputCalibration", -9999f);
+                if (mGainDB > -9000f) {
+                    MeterInputCalibrationDB = mGainDB;
+                    MeterGain = (float)Math.Pow(10.0, mGainDB / 20.0);
                 }
                 
-                MPXTiltCalibrationUs = GetFloat("MPXTiltCalibration", MPXTiltCalibrationUs);
-
-                float sGain = GetFloat("SpectrumInputCalibration", -9999f);
-                if (sGain > -9000f) {
-                    SpectrumInputCalibrationDB = sGain;
-                    SpectrumGain = (float)Math.Pow(10.0, sGain / 20.0);
+                // 2. Spectrum Gain Calculation (Independent)
+                float sGainDB = GetFloat("SpectrumInputCalibration", -9999f);
+                if (sGainDB > -9000f) {
+                    SpectrumInputCalibrationDB = sGainDB;
+                    SpectrumGain = (float)Math.Pow(10.0, sGainDB / 20.0);
                 }
+
+                MPXTiltCalibration = GetFloat("MPXTiltCalibration", MPXTiltCalibration);
 
                 MeterPilotScale = GetFloat("MeterPilotScale", MeterPilotScale);
                 MeterMPXScale = GetFloat("MeterMPXScale", MeterMPXScale);
@@ -139,7 +150,7 @@ public static class Config
 
                 MPX_LPF_100kHz = GetInt("MPX_LPF_100kHz", MPX_LPF_100kHz) != 0 ? 1 : 0;
 
-                Console.Error.WriteLine($"[MPX] Config Update: Gain={MeterInputCalibrationDB:F2}dB Tilt={MPXTiltCalibrationUs:F1}us");
+                // Console.Error.WriteLine($"[MPX] Config Update: MeterGain={MeterInputCalibrationDB:F2}dB SpecGain={SpectrumInputCalibrationDB:F2}dB Tilt={MPXTiltCalibration:F1}us");
             }
         }
         catch (Exception ex)
@@ -160,99 +171,48 @@ public static class DspUtils
         float dt = 1f / sampleRate;
         return 1f - MathF.Exp(-(dt / tauSeconds));
     }
-    
     public static float Clamp(float x, float lo, float hi) => (x < lo) ? lo : (x > hi) ? hi : x;
-    
     public static bool IsValid(float x) => !float.IsNaN(x) && !float.IsInfinity(x);
 }
 
 // ====================================================================================
-//  TILT CORRECTOR (Refined for Square Wave Compensation)
-//  Allows aligning the roof of a square wave.
-//  +/- values change the slope direction.
-//  Scale aligned to standard tools (~500 range).
+//  TILT CORRECTOR
 // ====================================================================================
 public class TiltCorrector
 {
-    private float yPrev;                 // Integrator state
-    private float gain;                  // Correction gain (alpha)
+    private float yIntegrator;           
+    private float gain;                  
+    private float currentUs;             
     private readonly float sampleRate;
-    private bool enabled;
 
     public TiltCorrector(float sr)
     {
         sampleRate = sr;
-        yPrev = 0f;
-        gain = 0f;
-        enabled = false;
+        yIntegrator = 0f; gain = 0f; currentUs = 0f;
     }
 
-  public void Update(float us)
-  {
-    // Clamp UI-range to [-1000..+1000] us
-    if (us > 1000f) us = 1000f;
-    if (us < -1000f) us = -1000f;
-
-    // Small deadband -> disable
-    if (MathF.Abs(us) <= 0.1f)
+    public void Update(float us)
     {
-        enabled = false;
-        gain = 0f;
-        yPrev = 0f;
-        return;
+        if (MathF.Abs(us - currentUs) < 0.1f) return;
+        currentUs = us;
+        if (MathF.Abs(us) < 1.0f) { gain = 0f; yIntegrator = 0f; } 
+        else { gain = us * 1.5e-6f; }
+        yIntegrator = 0f; 
     }
-
-    enabled = true;
-
-    // Make 1000us feel like old ~7000us range
-    const float UI_TO_INTERNAL_SCALE = 7.0f;
-
-    float sign = (us >= 0f) ? 1f : -1f;
-
-    float dt = 1f / sampleRate;
-    float tau = MathF.Abs(us) * UI_TO_INTERNAL_SCALE * 1e-6f; // seconds
-
-    // Safety
-    if (tau < 1.0e-5f) tau = 1.0e-5f;
-
-    // Signed alpha-like gain
-    gain = sign * (dt / tau);
-
-    // Optional safety clamp (prevents instability)
-    if (gain > 0.02f) gain = 0.02f;
-    if (gain < -0.02f) gain = -0.02f;
-
-    yPrev = 0f;
-  }
 
     public float Process(float x)
     {
-        if (!enabled) return x;
+        if (MathF.Abs(currentUs) < 1.0f) return x;
         if (!DspUtils.IsValid(x)) return 0f;
-
-        // Leaky Integrator acting as a slope generator
-        // Leak factor (0.999...) prevents DC runaway
-        yPrev = (yPrev * 0.999f) + (x * gain);
-
-        // Safety Clamp
-        if (yPrev > 5.0f) yPrev = 5.0f;
-        else if (yPrev < -5.0f) yPrev = -5.0f;
-
-        // Add correction to original signal
-        float y = x + yPrev;
-
-        if (!DspUtils.IsValid(y))
-        {
-            yPrev = 0f;
-            return x;
-        }
-
-        return y;
+        yIntegrator = (yIntegrator * 0.999f) + (x * gain);
+        if (yIntegrator > 2.0f) yIntegrator = 2.0f;
+        else if (yIntegrator < -2.0f) yIntegrator = -2.0f;
+        return x + yIntegrator;
     }
 }
 
 // ====================================================================================
-//  FAST FOURIER TRANSFORM (In-Place)
+//  FAST FOURIER TRANSFORM
 // ====================================================================================
 public static class QuickFFT
 {
@@ -260,10 +220,8 @@ public static class QuickFFT
     {
         int n = data.Length;
         int m = (int)Math.Log(n, 2);
-        int j = 0;
-        int n2 = n / 2;
+        int j = 0; int n2 = n / 2;
         
-        // Bit Reversal
         for (int i = 1; i < n - 1; i++) {
             int n1 = n2;
             while (j >= n1) { j -= n1; n1 >>= 1; }
@@ -271,14 +229,10 @@ public static class QuickFFT
             if (i < j) (data[i], data[j]) = (data[j], data[i]);
         }
         
-        // Butterfly Operations
-        int n1_ = 0;
-        int n2_ = 1;
+        int n1_ = 0; int n2_ = 1;
         for (int i = 0; i < m; i++) {
-            n1_ = n2_;
-            n2_ <<= 1;
-            double a = 0.0;
-            double step = -Math.PI / n1_;
+            n1_ = n2_; n2_ <<= 1;
+            double a = 0.0; double step = -Math.PI / n1_;
             for (j = 0; j < n1_; j++) {
                 Complex c = new Complex(Math.Cos(a), Math.Sin(a));
                 a += step;
@@ -293,7 +247,7 @@ public static class QuickFFT
 }
 
 // ====================================================================================
-//  BIQUAD FILTER (IIR)
+//  BIQUAD FILTER
 // ====================================================================================
 public class BiQuadFilter
 {
@@ -305,14 +259,9 @@ public class BiQuadFilter
         var f = new BiQuadFilter();
         float w0 = 2f * MathF.PI * frequency / sampleRate;
         float alpha = MathF.Sin(w0) / (2f * q);
-        
-        float b0 = alpha; 
         float a0 = 1f + alpha;
-        float a1 = -2f * MathF.Cos(w0);
-        float a2 = 1f - alpha;
-
-        f.b0 = b0 / a0; f.b1 = 0f; f.b2 = -alpha / a0;
-        f.a1 = a1 / a0; f.a2 = a2 / a0;
+        f.b0 = alpha / a0; f.b1 = 0f; f.b2 = -alpha / a0;
+        f.a1 = (-2f * MathF.Cos(w0)) / a0; f.a2 = (1f - alpha) / a0;
         return f;
     }
 
@@ -322,13 +271,9 @@ public class BiQuadFilter
         float w0 = 2f * MathF.PI * frequency / sampleRate;
         float alpha = MathF.Sin(w0) / (2f * q);
         float cosW0 = MathF.Cos(w0);
-
         float a0 = 1f + alpha;
-        f.b0 = ((1f - cosW0) * 0.5f) / a0;
-        f.b1 = (1f - cosW0) / a0;
-        f.b2 = ((1f - cosW0) * 0.5f) / a0;
-        f.a1 = (-2f * cosW0) / a0;
-        f.a2 = (1f - alpha) / a0;
+        f.b0 = ((1f - cosW0) * 0.5f) / a0; f.b1 = (1f - cosW0) / a0; f.b2 = ((1f - cosW0) * 0.5f) / a0;
+        f.a1 = (-2f * cosW0) / a0; f.a2 = (1f - alpha) / a0;
         return f;
     }
 
@@ -347,24 +292,15 @@ public class BiQuadFilter
 // ====================================================================================
 public class DCBlocker
 {
-    private float x1;
-    private float y1;
-    private readonly float R;
-
-    public DCBlocker()
-    {
-        x1 = 0f;
-        y1 = 0f;
-        R = 0.9995f;
-    }
+    private float x1; private float y1; private readonly float R;
+    public DCBlocker() { x1 = 0f; y1 = 0f; R = 0.99995f; } // < 1Hz cutoff
 
     public float Process(float x)
     {
         if (!DspUtils.IsValid(x)) return 0f;
         float y = x - x1 + R * y1;
         if (!DspUtils.IsValid(y)) { x1 = 0f; y1 = 0f; return 0f; }
-        x1 = x; y1 = y;
-        return y;
+        x1 = x; y1 = y; return y;
     }
 }
 
@@ -387,7 +323,6 @@ public class TruePeakN
     {
         if (factor != 8) factor = 4;
         if (!DspUtils.IsValid(x)) x = 0f;
-
         if (warm < 4) {
             if (warm == 0) x0=x1=x2=x3=x; else if (warm==1) x1=x2=x3=x; else if (warm==2) x2=x3=x; else x3=x;
             warm++; return MathF.Abs(x);
@@ -407,9 +342,7 @@ public class TruePeakN
 // ====================================================================================
 public class PeakHoldRelease
 {
-    private int holdSamples;
-    private int holdCounter;
-    private float releaseCoef;
+    private int holdSamples; private int holdCounter; private float releaseCoef;
     public float Value { get; private set; }
 
     public void Init(int sampleRate, float holdMs, float releaseMs) 
@@ -453,40 +386,22 @@ public class MpxDemodulator
     public MpxDemodulator(int sampleRate)
     {
         sr = sampleRate;
-        bpf19 = BiQuadFilter.BandPass(sr, 19000f, 20f);
-        bpf57 = BiQuadFilter.BandPass(sr, 57000f, 20f);
-        lpfI_Pilot = BiQuadFilter.LowPass(sr, 50f, 0.707f);
-        lpfQ_Pilot = BiQuadFilter.LowPass(sr, 50f, 0.707f);
-        lpfI_Rds = BiQuadFilter.LowPass(sr, 2400f, 0.707f);
-        lpfQ_Rds = BiQuadFilter.LowPass(sr, 2400f, 0.707f);
-
-        p_w0Rad = 2f * MathF.PI * 19000f / sr;
-        r_w0Rad = 2f * MathF.PI * 57000f / sr;
-
-        ComputePllGains(sr, 2.0f, 0.707f, out p_kp, out p_ki);
-        ComputePllGains(sr, 2.0f, 0.707f, out r_kp, out r_ki);
-
-        pilotPowAlpha = DspUtils.ExpAlphaFromTau(sr, 0.050f);
-        mpxPowAlpha   = DspUtils.ExpAlphaFromTau(sr, 0.100f);
-        rdsPowAlpha   = DspUtils.ExpAlphaFromTau(sr, 0.050f);
-        p_errAlpha    = DspUtils.ExpAlphaFromTau(sr, 0.010f);
-        r_errAlpha    = DspUtils.ExpAlphaFromTau(sr, 0.010f);
-        rmsAlpha      = DspUtils.ExpAlphaFromTau(sr, 0.100f);
-        blendAlpha    = DspUtils.ExpAlphaFromTau(sr, 0.050f);
-
-        pilotPow = 1e-6f; mpxPow = 1e-6f; rdsPow = 1e-6f;
-        rdsRefBlend = 1.0f;
+        bpf19 = BiQuadFilter.BandPass(sr, 19000f, 20f); bpf57 = BiQuadFilter.BandPass(sr, 57000f, 20f);
+        lpfI_Pilot = BiQuadFilter.LowPass(sr, 50f, 0.707f); lpfQ_Pilot = BiQuadFilter.LowPass(sr, 50f, 0.707f);
+        lpfI_Rds = BiQuadFilter.LowPass(sr, 2400f, 0.707f); lpfQ_Rds = BiQuadFilter.LowPass(sr, 2400f, 0.707f);
+        p_w0Rad = 2f * MathF.PI * 19000f / sr; r_w0Rad = 2f * MathF.PI * 57000f / sr;
+        ComputePllGains(sr, 2.0f, 0.707f, out p_kp, out p_ki); ComputePllGains(sr, 2.0f, 0.707f, out r_kp, out r_ki);
+        pilotPowAlpha = DspUtils.ExpAlphaFromTau(sr, 0.050f); mpxPowAlpha = DspUtils.ExpAlphaFromTau(sr, 0.100f);
+        rdsPowAlpha = DspUtils.ExpAlphaFromTau(sr, 0.050f); p_errAlpha = DspUtils.ExpAlphaFromTau(sr, 0.010f);
+        r_errAlpha = DspUtils.ExpAlphaFromTau(sr, 0.010f); rmsAlpha = DspUtils.ExpAlphaFromTau(sr, 0.100f);
+        blendAlpha = DspUtils.ExpAlphaFromTau(sr, 0.050f);
+        pilotPow = 1e-6f; mpxPow = 1e-6f; rdsPow = 1e-6f; rdsRefBlend = 1.0f;
     }
 
     private static void ComputePllGains(float sampleRate, float loopBwHz, float zeta, out float kp, out float ki) 
     {
-        float T = 1f / sampleRate;
-        float theta = (loopBwHz * T) / (zeta + (0.25f / zeta));
-        float d = 1f + 2f * zeta * theta + theta * theta;
-        float kp0 = (4f * zeta * theta) / d;
-        float ki0 = (4f * theta * theta) / d;
-        kp = kp0 / 0.5f; 
-        ki = ki0 / 0.5f;
+        float T = 1f / sampleRate; float theta = (loopBwHz * T) / (zeta + (0.25f / zeta)); float d = 1f + 2f * zeta * theta + theta * theta;
+        float kp0 = (4f * zeta * theta) / d; float ki0 = (4f * theta * theta) / d; kp = kp0 / 0.5f; ki = ki0 / 0.5f;
     }
 
     private void ResetPilotPll() { p_integrator = 0f; p_errLP = 0f; }
@@ -495,109 +410,29 @@ public class MpxDemodulator
     public void Process(float rawSample)
     {
         if (!DspUtils.IsValid(rawSample)) rawSample = 0f;
-
         mpxPow += (rawSample * rawSample - mpxPow) * mpxPowAlpha;
         float mpxRms = MathF.Sqrt(MathF.Max(mpxPow, 1e-12f));
-
         float pilotFiltered = bpf19.Process(rawSample);
         pilotPow += (pilotFiltered * pilotFiltered - pilotPow) * pilotPowAlpha;
         float pilotRms = MathF.Sqrt(MathF.Max(pilotPow, 1e-12f));
-
         bool presentNow = (mpxRms > 1e-9f) && ((pilotRms / (mpxRms + 1e-9f)) > 0.01f);
-
-        if (presentNow) 
-        {
-            presentCount++; 
-            absentCount = 0;
-            if (pilotPresent == 0 && presentCount > 2000) 
-            {
-                pilotPresent = 1; 
-                ResetPilotPll();
-                r_phaseRad = Wrap2Pi(3f * p_phaseRad); 
-                ResetRdsPll();
-            }
-        } 
-        else 
-        {
-            absentCount++; 
-            presentCount = 0;
-            if (pilotPresent != 0 && absentCount > 8000) 
-            {
-                pilotPresent = 0; 
-                ResetPilotPll(); 
-                ResetRdsPll();
-            }
-        }
-
-        float p_s = MathF.Sin(p_phaseRad);
-        float p_errNorm = (pilotFiltered * (-p_s)) / (pilotRms + 1e-9f);
-        if (!DspUtils.IsValid(p_errNorm)) p_errNorm = 0f;
-
-        p_errLP += (p_errNorm - p_errLP) * p_errAlpha;
-
-        if (pilotPresent != 0) 
-        {
-            p_integrator += p_ki * p_errLP;
-            float maxPull = 50f * (2f * MathF.PI / sr);
-            p_integrator = DspUtils.Clamp(p_integrator, -maxPull, +maxPull);
-            p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad + (p_kp * p_errLP + p_integrator));
-        } 
-        else 
-        {
-            p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad);
-            meanSqPilot *= 0.9995f;
-        }
-
-        float p_c = MathF.Cos(p_phaseRad);
-        float I_P = lpfI_Pilot.Process(rawSample * p_c);
-        float Q_P = lpfQ_Pilot.Process(rawSample * MathF.Sin(p_phaseRad));
-        meanSqPilot += ((I_P * I_P + Q_P * Q_P) - meanSqPilot) * rmsAlpha;
-        PilotMag = (pilotPresent != 0) ? MathF.Sqrt(MathF.Max(meanSqPilot, 0f)) : 0f;
-
-        rdsRefBlend += ((pilotPresent != 0 ? 1f : 0f) - rdsRefBlend) * blendAlpha;
-        float phase57_pilot = Wrap2Pi(3f * p_phaseRad);
-
-        float rdsFiltered57 = bpf57.Process(rawSample);
-        rdsPow += (rdsFiltered57 * rdsFiltered57 - rdsPow) * rdsPowAlpha;
-        float rdsRms = MathF.Sqrt(MathF.Max(rdsPow, 1e-12f));
-
-        if (pilotPresent == 0) 
-        {
-            float r_errNorm = (rdsFiltered57 * (-MathF.Sin(r_phaseRad))) / (rdsRms + 1e-9f);
-            if (!DspUtils.IsValid(r_errNorm)) r_errNorm = 0f;
-
-            r_errLP += (r_errNorm - r_errLP) * r_errAlpha;
-            r_integrator += r_ki * r_errLP;
-            float maxPull = 100f * (2f * MathF.PI / sr);
-            r_integrator = DspUtils.Clamp(r_integrator, -maxPull, +maxPull);
-            r_phaseRad = Wrap2Pi(r_phaseRad + r_w0Rad + (r_kp * r_errLP + r_integrator));
-        } 
-        else 
-        {
-            r_phaseRad = phase57_pilot; 
-            r_integrator = 0f; 
-            r_errLP = 0f;
-        }
-
-        float b = rdsRefBlend;
-        float c57 = b * MathF.Cos(phase57_pilot) + (1f - b) * MathF.Cos(r_phaseRad);
-        float s57 = b * MathF.Sin(phase57_pilot) + (1f - b) * MathF.Sin(r_phaseRad);
-
-        float I_R = lpfI_Rds.Process(rawSample * c57);
-        float Q_R = lpfQ_Rds.Process(rawSample * s57);
-        meanSqRds += ((I_R * I_R + Q_R * Q_R) - meanSqRds) * rmsAlpha;
-        RdsMag = MathF.Sqrt(MathF.Max(meanSqRds, 0f));
+        if (presentNow) { presentCount++; absentCount = 0; if (pilotPresent == 0 && presentCount > 2000) { pilotPresent = 1; ResetPilotPll(); r_phaseRad = Wrap2Pi(3f * p_phaseRad); ResetRdsPll(); } } 
+        else { absentCount++; presentCount = 0; if (pilotPresent != 0 && absentCount > 8000) { pilotPresent = 0; ResetPilotPll(); ResetRdsPll(); } }
+        float p_s = MathF.Sin(p_phaseRad); float p_errNorm = (pilotFiltered * (-p_s)) / (pilotRms + 1e-9f); p_errLP += (p_errNorm - p_errLP) * p_errAlpha;
+        if (pilotPresent != 0) { p_integrator += p_ki * p_errLP; float maxPull = 50f * (2f * MathF.PI / sr); p_integrator = DspUtils.Clamp(p_integrator, -maxPull, +maxPull); p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad + (p_kp * p_errLP + p_integrator)); } 
+        else { p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad); meanSqPilot *= 0.9995f; }
+        float p_c = MathF.Cos(p_phaseRad); float I_P = lpfI_Pilot.Process(rawSample * p_c); float Q_P = lpfQ_Pilot.Process(rawSample * MathF.Sin(p_phaseRad));
+        meanSqPilot += ((I_P * I_P + Q_P * Q_P) - meanSqPilot) * rmsAlpha; PilotMag = (pilotPresent != 0) ? MathF.Sqrt(MathF.Max(meanSqPilot, 0f)) : 0f;
+        rdsRefBlend += ((pilotPresent != 0 ? 1f : 0f) - rdsRefBlend) * blendAlpha; float phase57_pilot = Wrap2Pi(3f * p_phaseRad);
+        float rdsFiltered57 = bpf57.Process(rawSample); rdsPow += (rdsFiltered57 * rdsFiltered57 - rdsPow) * rdsPowAlpha; float rdsRms = MathF.Sqrt(MathF.Max(rdsPow, 1e-12f));
+        if (pilotPresent == 0) { float r_errNorm = (rdsFiltered57 * (-MathF.Sin(r_phaseRad))) / (rdsRms + 1e-9f); r_errLP += (r_errNorm - r_errLP) * r_errAlpha; r_integrator += r_ki * r_errLP; float maxPull = 100f * (2f * MathF.PI / sr); r_integrator = DspUtils.Clamp(r_integrator, -maxPull, +maxPull); r_phaseRad = Wrap2Pi(r_phaseRad + r_w0Rad + (r_kp * r_errLP + r_integrator)); } 
+        else { r_phaseRad = phase57_pilot; r_integrator = 0f; r_errLP = 0f; }
+        float b = rdsRefBlend; float c57 = b * MathF.Cos(phase57_pilot) + (1f - b) * MathF.Cos(r_phaseRad); float s57 = b * MathF.Sin(phase57_pilot) + (1f - b) * MathF.Sin(r_phaseRad);
+        float I_R = lpfI_Rds.Process(rawSample * c57); float Q_R = lpfQ_Rds.Process(rawSample * s57);
+        meanSqRds += ((I_R * I_R + Q_R * Q_R) - meanSqRds) * rmsAlpha; RdsMag = MathF.Sqrt(MathF.Max(meanSqRds, 0f));
     }
 
-    private static float Wrap2Pi(float x) 
-    {
-        float twoPi = 2f * MathF.PI;
-        if (x >= twoPi) x -= twoPi; 
-        if (x < 0) x += twoPi;
-        if (x >= twoPi || x < 0) x %= twoPi;
-        if (x < 0) x += twoPi;
-        return x;
-    }
+    private static float Wrap2Pi(float x) { float twoPi = 2f * MathF.PI; if (x >= twoPi) x -= twoPi; if (x < 0) x += twoPi; if (x >= twoPi || x < 0) x %= twoPi; if (x < 0) x += twoPi; return x; }
 }
 
 // ====================================================================================
@@ -605,66 +440,50 @@ public class MpxDemodulator
 // ====================================================================================
 class Program
 {
-    const float BASE_PREAMP = 3.0f;
+    const float BASE_PREAMP = 1.0f;
+    const double SCOPE_DECIMATION = 5.19; 
 
     static void Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
 
-        // --- 1. Argument Parsing ---
         int requestedSr = 192000;
-        if (args.Length >= 1 && int.TryParse(args[0], out int s)) 
-            requestedSr = s;
+        if (args.Length >= 1 && int.TryParse(args[0], out int s)) requestedSr = s;
 
         string devName = (args.Length >= 2 && args[1] != "Default") ? args[1].Trim('"') : "";
 
         int fftSize = 4096;
-        if (args.Length >= 3 && int.TryParse(args[2], out int f)) 
-            fftSize = f;
-        
-        if ((fftSize & (fftSize - 1)) != 0 || fftSize < 512) 
-            fftSize = 4096;
+        if (args.Length >= 3 && int.TryParse(args[2], out int f)) fftSize = f;
+        if ((fftSize & (fftSize - 1)) != 0 || fftSize < 512) fftSize = 4096;
 
         string cfgPath = (args.Length >= 4) ? args[3] : "metricsmonitor.json";
         Config.Init(cfgPath);
 
-        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}'");
-        Console.Error.WriteLine("[MPX] Features: BS.412 Power, DC Blocker, TILT CORRECTION (Refined), TruePeak");
+        // Get UDP Port from arguments (default to 60001 if missing)
+        int udpPort = 60001;
+        if (args.Length >= 5 && int.TryParse(args[4], out int u)) udpPort = u;
+        
+        // Start UDP Listener for Spectrum Toggle
+        StartUdpListener(udpPort);
 
-        // --- 2. Audio Device Setup ---
+        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}' Spectrum:{Config.EnableSpectrum} UDP:{udpPort}");
+
         var enumerator = new MMDeviceEnumerator();
         MMDevice device = null;
 
-        if (string.IsNullOrEmpty(devName))
-        {
-            device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
-        }
-        else
-        {
-            device = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
-                               .FirstOrDefault(d => d.FriendlyName.Contains(devName, StringComparison.OrdinalIgnoreCase));
-        }
+        if (string.IsNullOrEmpty(devName)) device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+        else device = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).FirstOrDefault(d => d.FriendlyName.Contains(devName, StringComparison.OrdinalIgnoreCase));
 
-        if (device == null) 
-        { 
-            Console.Error.WriteLine("[MPX] ERROR: Audio device not found."); 
-            return; 
-        }
+        if (device == null) { Console.Error.WriteLine("[MPX] ERROR: Audio device not found."); return; }
 
         try
         {
             var requestedFormat = WaveFormat.CreateIeeeFloatWaveFormat(requestedSr, 2);
-            var capture = new WasapiCapture(device, false, 20); // 20ms Latency
+            var capture = new WasapiCapture(device, false, 20); 
 
-            try 
-            { 
-                capture.WaveFormat = requestedFormat; 
-            }
-            catch 
-            { 
-                Console.Error.WriteLine($"[MPX] WARNING: Could not set {requestedSr} Hz; using device default."); 
-            }
+            try { capture.WaveFormat = requestedFormat; }
+            catch { Console.Error.WriteLine($"[MPX] WARNING: Could not set {requestedSr} Hz; using device default."); }
 
             int actualSr = capture.WaveFormat.SampleRate;
             int channels = capture.WaveFormat.Channels;
@@ -673,30 +492,33 @@ class Program
 
             Console.Error.WriteLine($"[MPX] Format: {actualSr} Hz, {channels} ch, {(isFloat ? "Float32" : "PCM")} {capture.WaveFormat.BitsPerSample} bit");
 
-            // --- 3. Processing Buffers & DSP Init ---
             int sr = actualSr;
             
-            // FFT Buffers
             Complex[] fftBuffer = new Complex[fftSize];
             float[] window = new float[fftSize];
             float[] smoothSpectrum = new float[fftSize / 2];
             int fftIndex = 0; 
+            for (int i = 0; i < fftSize; i++) window[i] = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (fftSize - 1))));
 
-            // Oscilloscope Buffers
             float[] scopeBuf = new float[1024]; 
             int scopeIndex = 0;
             bool scopeTrigger = false;
-            float prevScopeSample = 0f;
+            double scopeDecimator = 0.0;
+            
+            bool triggerArmed = false; 
+            int silenceSampleCount = 0;
+            bool isBurstMode = false;       
+            const float SILENCE_THRES = 0.05f;
+            const int MIN_SILENCE_SAMPLES = 2000; 
 
-            // Window Function (Hanning)
-            for (int i = 0; i < fftSize; i++)
-            {
-                window[i] = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (fftSize - 1))));
-            }
+            int triggerHoldoffCounter = 0;
+            int triggerHoldoffLimit = (int)(sr * 0.020); 
+            long samplesSinceLastTrigger = 0;
+            long autoTriggerLimit = (long)(sr * 0.150);
 
             var dcBlocker = new DCBlocker();
             var tiltCorrector = new TiltCorrector((float)sr);
-            tiltCorrector.Update(Config.MPXTiltCalibrationUs);
+            tiltCorrector.Update(Config.MPXTiltCalibration);
 
             const float BS412_REF_POWER = 180.5f;
             float bs412_power = 0.0f;
@@ -714,33 +536,25 @@ class Program
             var env = new PeakHoldRelease();
             env.Init(sr, holdMs: 200f, releaseMs: 1500f);
 
-            // Channel Selection Logic
             int activeChannel = 0;
             bool channelLocked = false;
             double energyL = 0.0, energyR = 0.0;
             int energySamples = 0;
 
-            // Timing & Output Controls
             int samplesSinceLastOutput = 0;
             int configTick = 0;
             int outputThresh = (sr * Config.SpectrumSendInterval) / 1000;
 
-            float smoothP = 0f; 
-            float smoothR = 0f;
-            float smoothB = -99f;
-
+            float smoothP = 0f; float smoothR = 0f; float smoothB = -99f;
             double resamplePhase = 0.0;
             double resampleRatio = (requestedSr > 0) ? ((double)actualSr / requestedSr) : 1.0;
             bool doDecimate = (actualSr != requestedSr && requestedSr > 0 && actualSr > requestedSr);
 
-            // --- 4. Realtime Audio Loop ---
             capture.DataAvailable += (s, e) =>
             {
-                // Slow Tick Config Updates (approx every 40 callbacks)
-                if (configTick++ > 40)
-                {
+                if (configTick++ > 40) {
                     Config.Update();
-                    tiltCorrector.Update(Config.MPXTiltCalibrationUs);
+                    tiltCorrector.Update(Config.MPXTiltCalibration); 
                     configTick = 0;
                     outputThresh = (sr * Config.SpectrumSendInterval) / 1000;
                 }
@@ -748,176 +562,159 @@ class Program
                 int frameSize = channels * bytesPerSample;
                 int frames = e.BytesRecorded / frameSize;
 
+                // Cache active state for this frame block to ensure consistency
+                bool spectrumEnabled = Config.EnableSpectrum;
+
                 for (int i = 0; i < frames; i++)
                 {
                     int offset = i * frameSize;
                     float vL = 0f, vR = 0f;
 
-                    // --- Decode PCM/Float ---
-                    if (isFloat)
-                    {
+                    if (isFloat) {
                         vL = BitConverter.ToSingle(e.Buffer, offset);
                         if (channels > 1) vR = BitConverter.ToSingle(e.Buffer, offset + 4);
-                    }
-                    else
-                    {
-                        if (bytesPerSample == 2)
-                        {
-                            vL = BitConverter.ToInt16(e.Buffer, offset) / 32768f;
-                            if (channels > 1) vR = BitConverter.ToInt16(e.Buffer, offset + 2) / 32768f;
-                        }
-                        else if (bytesPerSample == 3)
-                        {
-                            int s24L = (e.Buffer[offset] | (e.Buffer[offset + 1] << 8) | (e.Buffer[offset + 2] << 16));
-                            if ((s24L & 0x800000) != 0) s24L |= unchecked((int)0xFF000000);
-                            vL = s24L / 8388608f;
+                    } else { /* PCM omitted */ }
 
-                            if (channels > 1)
-                            {
-                                int o2 = offset + 3;
-                                int s24R = (e.Buffer[o2] | (e.Buffer[o2 + 1] << 8) | (e.Buffer[o2 + 2] << 16));
-                                if ((s24R & 0x800000) != 0) s24R |= unchecked((int)0xFF000000);
-                                vR = s24R / 8388608f;
-                            }
-                        }
-                    }
-
-                    // --- Decimation (Optional) ---
-                    if (doDecimate)
-                    {
+                    if (doDecimate) {
                         resamplePhase += 1.0;
                         if (resamplePhase < resampleRatio) continue;
                         resamplePhase -= resampleRatio;
                     }
 
-                    // --- Auto-Channel Selection ---
-                    if (!channelLocked)
-                    {
-                        energyL += vL * vL;
-                        energyR += vR * vR;
-                        energySamples++;
-                        if (energySamples >= 8192)
-                        {
+                    if (!channelLocked) {
+                        energyL += vL * vL; energyR += vR * vR; energySamples++;
+                        if (energySamples >= 8192) {
                             activeChannel = (energyR > energyL * 4.0) ? 1 : 0;
                             channelLocked = true;
-                            Console.Error.WriteLine($"[MPX] Auto-Channel Locked to: {activeChannel} (L: {energyL:F1} vs R: {energyR:F1})");
                         }
                     }
 
-                    // --- DSP Chain ---
                     float rawVal = (activeChannel == 1) ? vR : vL;
                     rawVal *= BASE_PREAMP;
 
-                    // vRaw BEFORE DC-BLOCKER (Scope source, and matches MeterGain calibration path)
-                    float vRaw = rawVal * Config.MeterGain;
+                    // ===========================================================================
+                    //  SIGNAL CHAIN (With Decoupled Calibration)
+                    // ===========================================================================
 
-                    // Processing chain (meters/demod/FFT) stays DC-blocked (unchanged behavior)
-                    float mpxProc = dcBlocker.Process(vRaw);
+                    // 1. TILT CORRECTION (First)
+                    float vTilt = tiltCorrector.Process(rawVal); 
 
-                    // ---- Scope-only tilt handling (visual only) ----
-                    // IMPORTANT: we apply tilt correction to vRaw (pre-DC) so scope shape is correct,
-                    // and +/− MPXTiltCalibration produces different behavior.
-
-                    // Demod uses the processing signal (not scope)
-                    demod.Process(mpxProc);
-
-                    // --- Metering ---
-                    float limited = (Config.MPX_LPF_100kHz != 0) ? mpxPeakLpf.Process(mpxProc) : mpxProc;
-
-                    float peakN = truePeak.Process(limited, Config.TruePeakFactor);
+                    // 2. METERING BRANCH
+                    float vMeterCalibrated = vTilt * Config.MeterGain;
+                    
+                    // 3. TRUE PEAK MEASUREMENT (On vMeterCalibrated BEFORE DC Block)
+                    float signalForPeak = vMeterCalibrated;
+                    if (Config.MPX_LPF_100kHz != 0) signalForPeak = mpxPeakLpf.Process(signalForPeak);
+                    float peakN = truePeak.Process(signalForPeak, Config.TruePeakFactor);
                     float mpxKhz = peakN * Config.MeterMPXScale;
                     float smoothMpx = env.Process(mpxKhz);
 
-                    float mpxSq = limited * limited;
+                    // 4. SPECTRUM/DEMOD BRANCH (Needs separate gain + DC blocking)
+                    float vSpecCalibrated = vTilt * Config.SpectrumGain;
+                    
+                    // DC Blocking (Separate for Demod/FFT)
+                    // Note: We use vMeterCalibrated for Demod to ensure Pilot/RDS levels match Meters
+                    float mpxForDemod = dcBlocker.Process(vMeterCalibrated); 
+                    demod.Process(mpxForDemod);
+
+                    // --- Processing Rest ---
+                    float mpxSq = signalForPeak * signalForPeak;
                     bs412_power += (mpxSq - bs412_power) * bs412_alpha;
                     float powerDbr = 10f * MathF.Log10((bs412_power + 1e-9f) / (BS412_REF_POWER * BS412_REF_POWER + 1e-9f));
-                    if (smoothB < -90f) smoothB = powerDbr;
-                    else smoothB = (smoothB * 0.999f) + (powerDbr * 0.001f);
+                    if (smoothB < -90f) smoothB = powerDbr; else smoothB = (smoothB * 0.999f) + (powerDbr * 0.001f);
 
                     float pKhz = demod.PilotMag * Config.MeterPilotScale;
-                    if (smoothP == 0f) smoothP = pKhz;
-                    else smoothP = (smoothP * 0.9f) + (pKhz * 0.1f);
+                    if (smoothP == 0f) smoothP = pKhz; else smoothP = (smoothP * 0.9f) + (pKhz * 0.1f);
 
                     float rKhz = demod.RdsMag * Config.MeterRDSScale;
-                    if (smoothR == 0f) smoothR = rKhz;
-                    else smoothR = (smoothR * 0.9f) + (rKhz * 0.1f);
+                    if (smoothR == 0f) smoothR = rKhz; else smoothR = (smoothR * 0.9f) + (rKhz * 0.1f);
 
-                    // --- 1. FFT Buffer Logic (Independent of Output Timer) ---
-                    // IMPORTANT: FFT uses processing signal (mpxProc), so Spectrum stays unchanged.
-                    if (fftIndex < fftSize)
+                    // ===========================================================================
+                    //  CONDITIONAL PROCESSING (Spectrum / Scope)
+                    // ===========================================================================
+                    if (spectrumEnabled) 
                     {
-                        fftBuffer[fftIndex] = new Complex(mpxProc * window[fftIndex] * Config.SpectrumGain, 0);
-                        fftIndex++;
-                    }
-                    else
-                    {
-                        QuickFFT.Compute(fftBuffer);
-
-                        for (int k = 0; k < fftSize / 2; k++)
-                        {
-                            float mag = (float)fftBuffer[k].Magnitude;
-                            if (mag > smoothSpectrum[k])
-                                smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumAttack)) + (mag * Config.SpectrumAttack);
-                            else
-                                smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumDecay)) + (mag * Config.SpectrumDecay);
+                        // --- FFT Buffer ---
+                        if (fftIndex < fftSize) {
+                            fftBuffer[fftIndex] = new Complex(vSpecCalibrated * window[fftIndex], 0);
+                            fftIndex++;
+                        } else {
+                            QuickFFT.Compute(fftBuffer);
+                            for (int k = 0; k < fftSize / 2; k++) {
+                                float mag = (float)fftBuffer[k].Magnitude;
+                                if (mag > smoothSpectrum[k]) smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumAttack)) + (mag * Config.SpectrumAttack);
+                                else smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumDecay)) + (mag * Config.SpectrumDecay);
+                            }
+                            fftIndex = 0;
                         }
 
-                        fftIndex = 0;
-                    }
+                        // --- Oscilloscope Trigger ---
+                        float scopeInput = vTilt; 
 
-                    // --- 2. Oscilloscope Trigger Logic ---
-                    if (!scopeTrigger)
-                    {
-                        // Trigger on processing signal (mpxProc) for stable zero crossing without DC offset
-                        if (prevScopeSample < 0f && mpxProc >= 0f)
-                        {
-                            scopeTrigger = true;
-                            scopeIndex = 0;
+                        if (Math.Abs(scopeInput) < SILENCE_THRES) {
+                            if (silenceSampleCount < MIN_SILENCE_SAMPLES + 100) silenceSampleCount++;
+                            if (silenceSampleCount >= MIN_SILENCE_SAMPLES) isBurstMode = true; 
+                        } else { silenceSampleCount = 0; }
+
+                        if (triggerHoldoffCounter > 0) {
+                            triggerHoldoffCounter--;
+                        } else if (!scopeTrigger) {
+                            samplesSinceLastTrigger++;
+                            bool fire = false;
+                            if (samplesSinceLastTrigger > autoTriggerLimit) { fire = true; }
+                            else {
+                                if (isBurstMode) {
+                                    if (!triggerArmed && scopeInput > 0.15f) { fire = true; isBurstMode = false; }
+                                } else {
+                                    if (!triggerArmed) { if (scopeInput > 0.2f) triggerArmed = true; }
+                                    else { if (scopeInput < 0.0f) { fire = true; triggerArmed = false; } }
+                                }
+                            }
+                            if (fire) {
+                                scopeTrigger = true; samplesSinceLastTrigger = 0;
+                                scopeIndex = 0; scopeDecimator = SCOPE_DECIMATION; triggerArmed = false; 
+                            }
+                        }
+
+                        if (scopeTrigger) {
+                            if (scopeIndex < scopeBuf.Length) {
+                                if (scopeDecimator >= SCOPE_DECIMATION) {
+                                    scopeDecimator -= SCOPE_DECIMATION;
+                                    scopeBuf[scopeIndex++] = scopeInput;
+                                }
+                                scopeDecimator += 1.0;
+                            } else { scopeTrigger = false; triggerHoldoffCounter = triggerHoldoffLimit; }
                         }
                     }
 
-                    if (scopeTrigger && scopeIndex < scopeBuf.Length)
-                    {
-                        // Apply Tilt Correction here specifically for the visual scope buffer
-                        float scopeSample = tiltCorrector.Process(vRaw);
-                        scopeBuf[scopeIndex++] = scopeSample;
-                    }
-
-                    if (scopeIndex >= scopeBuf.Length) scopeTrigger = false;
-                    prevScopeSample = mpxProc;
-
-                    // --- 3. Output JSON Logic (Timer Based) ---
-                    if (++samplesSinceLastOutput >= outputThresh)
-                    {
+                    // --- Output JSON ---
+                    if (++samplesSinceLastOutput >= outputThresh) {
                         samplesSinceLastOutput = 0;
-
                         var sb = new StringBuilder();
-
-                        // --- A. Spectrum Data (Last calculated frame) ---
                         sb.Append("{\"s\":[");
-                        for (int k = 0; k < fftSize / 2; k++)
-                        {
-                            sb.Append(smoothSpectrum[k].ToString("0.0000000", CultureInfo.InvariantCulture));
-                            if (k < (fftSize / 2) - 1) sb.Append(",");
+                        
+                        // Only output Spectrum data if enabled
+                        if (spectrumEnabled) {
+                            for (int k = 0; k < fftSize / 2; k++) {
+                                sb.Append(smoothSpectrum[k].ToString("0.0000000", CultureInfo.InvariantCulture));
+                                if (k < (fftSize / 2) - 1) sb.Append(",");
+                            }
                         }
-
-                        // --- B. Oscilloscope Data (Snapshot) ---
+                        
                         sb.Append("],\"o\":[");
-                        for (int k = 0; k < scopeBuf.Length; k++)
-                        {
-                            sb.Append(scopeBuf[k].ToString("0.0000", CultureInfo.InvariantCulture));
-                            if (k < scopeBuf.Length - 1) sb.Append(",");
+                        
+                        // Only output Scope data if enabled
+                        if (spectrumEnabled) {
+                            for (int k = 0; k < scopeBuf.Length; k++) {
+                                sb.Append(scopeBuf[k].ToString("0.0000", CultureInfo.InvariantCulture));
+                                if (k < scopeBuf.Length - 1) sb.Append(",");
+                            }
                         }
-
-                        // --- C. Meters ---
-                        sb.Append("],\"p\":");
-                        sb.Append(smoothP.ToString("0.00", CultureInfo.InvariantCulture));
-                        sb.Append(",\"r\":");
-                        sb.Append(smoothR.ToString("0.00", CultureInfo.InvariantCulture));
-                        sb.Append(",\"m\":");
-                        sb.Append(smoothMpx.ToString("0.00", CultureInfo.InvariantCulture));
+                        
+                        sb.Append("],\"p\":"); sb.Append(smoothP.ToString("0.00", CultureInfo.InvariantCulture));
+                        sb.Append(",\"r\":"); sb.Append(smoothR.ToString("0.00", CultureInfo.InvariantCulture));
+                        sb.Append(",\"m\":"); sb.Append(smoothMpx.ToString("0.00", CultureInfo.InvariantCulture));
                         sb.Append("}");
-
                         Console.WriteLine(sb.ToString());
                     }
                 }
@@ -930,5 +727,42 @@ class Program
         {
             Console.Error.WriteLine($"[MPX] FATAL ERROR: {ex.Message}");
         }
+    }
+
+    // --- UDP Listener for Remote Control (Toggle Spectrum Processing) ---
+    static void StartUdpListener(int port)
+    {
+        Task.Run(async () => {
+            try 
+            {
+                using var udp = new UdpClient(port);
+                // Console.Error.WriteLine($"[MPX] Listening for UDP commands on port {port}");
+                
+                while (true) 
+                {
+                    var result = await udp.ReceiveAsync();
+                    string command = Encoding.UTF8.GetString(result.Buffer).Trim();
+                    
+                    if (command == "SPECTRUM=1") 
+                    {
+                        if (!Config.EnableSpectrum) {
+                            Config.EnableSpectrum = true;
+                            // Console.Error.WriteLine("[MPX] Spectrum Processing ENABLED via UDP");
+                        }
+                    } 
+                    else if (command == "SPECTRUM=0") 
+                    {
+                        if (Config.EnableSpectrum) {
+                            Config.EnableSpectrum = false;
+                            // Console.Error.WriteLine("[MPX] Spectrum Processing DISABLED via UDP");
+                        }
+                    }
+                }
+            } 
+            catch (Exception ex) 
+            {
+                Console.Error.WriteLine($"[MPX] UDP Listener Error: {ex.Message}");
+            }
+        });
     }
 }

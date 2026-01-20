@@ -7,12 +7,15 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1178" height="173" alt="image" src="https://github.com/user-attachments/assets/9d961dc7-fd15-4e52-88a8-6b6680d0cb27" />
 <img width="1178" height="174" alt="grafik" src="https://github.com/user-attachments/assets/6ea707e1-8d87-466d-bbb4-b0f266e3586d" />
 
-
-## v2.1
-
-- Integration of an oscilloscope (click on MPX Spectrum title in the analyzer!)
-- New variable for adjusting the tilt at the sound card input (see configuration options!)
-- Sound card reconnect logic built in (Tnx to AmateurAudioDude)
+## v2.2
+- Improved Pilot, MPX, and RDS calculations
+- Enabled display of other signal patterns in the scope display
+- Refined tilt correction
+- Scaling adjustment
+- Expanded horizontal zoom in scope mode
+- Revised cursor alignment in analyzer mode
+- CPU/Network Optimization: Spectrum/Scope calculation is gated (only active when accessed via a browser)
+- New variable EnableAnalyzerAdminMode restricts analyzer/oscilloscope display to administrators
 
 ## Important note for this version: 
 
@@ -187,6 +190,12 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+## v2.1
+
+- Integration of an oscilloscope (click on MPX Spectrum title in the analyzer!)
+- New variable for adjusting the tilt at the sound card input (see configuration options!)
+- Sound card reconnect logic built in (Tnx to AmateurAudioDude)
 
 ## v2.0
 

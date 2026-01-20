@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.1)   //
+//  metricsmonitor-analyzer.js                      (V2.2)   //
 //                                                           //
-//  by Highpoint               last update: 17.01.2026       //
+//  by Highpoint               last update: 20.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -17,31 +17,34 @@ const MPXmode = "auto";    // Do not touch - this value is automatically updated
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = -10;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotCalibration = -1.7;    // Do not touch - this value is automatically updated via the config file
-const MeterMPXCalibration = -18.5;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSCalibration = -2.5;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 200;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 650;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotCalibration = -9.6;    // Do not touch - this value is automatically updated via the config file
+const MeterMPXCalibration = -22.7;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSCalibration = -3;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 400;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 750;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
-const SpectrumYDynamics = 1.9;    // Do not touch - this value is automatically updated via the config file
+const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
+
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
+
 // Default mode is Spectrum. Oscilloscope is optional.
 let isScopeMode = false;
 
@@ -101,8 +104,14 @@ const MpxHub = (() => {
     connect();
     return () => listeners.delete(fn);
   }
+  
+  function send(data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify(data)); } catch(e) {}
+      }
+  }
 
-  return { subscribe, connect };
+  return { subscribe, connect, send };
 })();
 
 function closeMpxSocket() {
@@ -148,6 +157,27 @@ const KeyboardHub = (() => {
 /////////////////////////////////////////////////////////////////
 let __mmAnalyzerSeq = 0;
 const __instances = new Map();
+
+// --- GLOBAL Heartbeat Manager ---
+// Only runs if at least one instance exists.
+let _heartbeatInterval = null;
+
+function checkHeartbeatStatus() {
+    const hasInstances = __instances.size > 0;
+
+    if (hasInstances && !_heartbeatInterval) {
+        // Start Heartbeat
+        MpxHub.send({ type: "MPX", cmd: "spectrum_heartbeat" });
+        _heartbeatInterval = setInterval(() => {
+            MpxHub.send({ type: "MPX", cmd: "spectrum_heartbeat" });
+        }, 2000);
+    } 
+    else if (!hasInstances && _heartbeatInterval) {
+        // Stop Heartbeat
+        clearInterval(_heartbeatInterval);
+        _heartbeatInterval = null;
+    }
+}
 
 function createAnalyzerInstance(containerId = "level-meter-container", options = {}) {
   const id = (++__mmAnalyzerSeq);
@@ -261,7 +291,7 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
 
   let zoomLevel = 1.0;
   let zoomCenterHz = 38000;
-  const MIN_ZOOM = 0.68;
+  const MIN_ZOOM = 0.1; // Allow zooming out in Scope Mode
   const MAX_ZOOM = 20.0;
   const ZOOM_STEP = 1.3;
 
@@ -370,36 +400,47 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   function updateZoomBounds() {
     const maxVal = isScopeMode ? SCOPE_SAMPLES : MPX_FMAX_HZ;
     
-    if (zoomLevel >= 1.0) {
-      const visibleRange = maxVal / zoomLevel;
-      visibleStart = viewCenter - visibleRange / 2;
-      visibleEnd = viewCenter + visibleRange / 2;
+    // In Scope Mode, allow zooming out (zoomLevel < 1.0)
+    // In Spectrum Mode, restrict to >= 1.0
+    
+    const effectiveZoom = isScopeMode ? Math.max(MIN_ZOOM, zoomLevel) : Math.max(1.0, zoomLevel);
 
-      if (visibleStart < 0) {
-        visibleStart = 0;
-        visibleEnd = visibleRange;
-      }
-      if (visibleEnd > maxVal) {
-        visibleEnd = maxVal;
-        visibleStart = maxVal - visibleRange;
-      }
-      viewCenter = (visibleStart + visibleEnd) / 2;
+    const visibleRange = maxVal / effectiveZoom;
+    visibleStart = viewCenter - visibleRange / 2;
+    visibleEnd = viewCenter + visibleRange / 2;
+
+    // Clamping logic:
+    // If visible range is larger than maxVal (zoomed out), center perfectly
+    if (visibleRange >= maxVal) {
+        visibleStart = (maxVal - visibleRange) / 2;
+        visibleEnd = (maxVal + visibleRange) / 2;
+        viewCenter = maxVal / 2;
     } else {
-      visibleStart = 0;
-      visibleEnd = maxVal;
-      viewCenter = maxVal / 2;
+        // Standard clamping for zoomed in
+        if (visibleStart < 0) {
+            visibleStart = 0;
+            visibleEnd = visibleRange;
+        }
+        if (visibleEnd > maxVal) {
+            visibleEnd = maxVal;
+            visibleStart = maxVal - visibleRange;
+        }
+        viewCenter = (visibleStart + visibleEnd) / 2;
     }
   }
 
   function setZoom(newZoomLevel, newCenter = null) {
-    zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoomLevel));
+    // Only allow < 1.0 if in Scope Mode
+    const minZ = isScopeMode ? MIN_ZOOM : 1.0;
+    zoomLevel = Math.max(minZ, Math.min(MAX_ZOOM, newZoomLevel));
+    
     const maxVal = isScopeMode ? SCOPE_SAMPLES : MPX_FMAX_HZ;
     
-    if (zoomLevel >= 1.0) {
-      if (newCenter !== null) viewCenter = Math.max(0, Math.min(maxVal, newCenter));
-    } else {
-      viewCenter = maxVal / 2;
+    if (newCenter !== null) {
+        // Allow center to drift slightly outside if zoomed out
+        viewCenter = newCenter; 
     }
+    
     updateZoomBounds();
     updateCursor();
     drawMpxSpectrum();
@@ -704,9 +745,8 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
 
         let first = true;
         
-        // Drawing loop
-        // We map Sample Index -> Screen X
-        // X = OFFSET_X + ((SampleIndex - visibleStart) / visibleSampleCount) * usableWidth
+        // If zoomed out significantly (visibleSampleCount > usableWidth), skip pixels
+        // If zoomed in, linear interp
         
         for (let i = startSample; i <= endSample; i++) {
             const x = OFFSET_X + ((i - visibleStart) / visibleSampleCount) * usableWidth;
@@ -771,69 +811,90 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   }
 
   function drawHoverCursor() {
-    if (isScopeMode) return; // No cursor in scope mode for now
+  if (isScopeMode) return; // No cursor in scope mode for now
+  if (hoverX === null || isDragging) return;
+  if (hoverX < OFFSET_X) return;
 
-    if (hoverX === null || isDragging) return;
-    if (hoverX < OFFSET_X) return;
+  const logicalWidth = canvas.clientWidth;
+  const graphWidth = logicalWidth - OFFSET_X;
 
-    const logicalWidth = canvas.clientWidth;
-    const graphWidth = logicalWidth - OFFSET_X;
+  if (!mpxSpectrum.length) return;
+  const totalBins = mpxSpectrum.length;
 
-    let freqHz = 0;
+  let freqHz = 0;
+  let bin = 0;
 
-    if (zoomLevel > 1.0) {
-        const pct = (hoverX - OFFSET_X) / graphWidth;
-        freqHz = visibleStart + pct * (visibleEnd - visibleStart);
-    } else {
-        const usableWidth = graphWidth * CURVE_X_SCALE * zoomLevel; 
-        const effectiveWidth = usableWidth * CURVE_X_STRETCH;
-        const fraction = (hoverX - OFFSET_X) / effectiveWidth;
-        freqHz = fraction * MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
-    }
+  if (zoomLevel > 1.0) {
+    // Zoomed Spectrum: use the same frequency<->bin mapping as the zoomed trace renderer
+    const pct = (hoverX - OFFSET_X) / graphWidth;
+    freqHz = visibleStart + pct * (visibleEnd - visibleStart);
 
     if (freqHz < 0 || freqHz > MPX_FMAX_HZ) return;
 
-    if (!mpxSpectrum.length) return;
-    const bin = freqToBin(freqHz, mpxSpectrum.length);
-    if (bin < 0 || bin >= mpxSpectrum.length) return;
+    bin = freqToBin(freqHz, totalBins);
+  } else {
+    // Full view Spectrum: MUST mirror the X mapping used in drawMpxSpectrumTrace() full-view path.
+    //
+    // Trace draws:
+    //   x = OFFSET_X + ((i / (N-1)) * usableWidthScale * CURVE_X_STRETCH) * zoomLevel
+    //
+    // So we invert that to get i (bin) from hoverX without applying CURVE_X_STRETCH twice.
+    const usableWidthScale = graphWidth * CURVE_X_SCALE;
+    const effectiveWidth = usableWidthScale * CURVE_X_STRETCH * zoomLevel; // zoomLevel is 1.0 in spectrum full-view
 
-    let rawVal = mpxSpectrum[bin];
-    let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
-    val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
-    
-    if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
-    if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+    const frac = (hoverX - OFFSET_X) / effectiveWidth;
+    if (frac < 0 || frac > 1) return;
 
-    const range = getDisplayRange();
-    const logicalHeight = canvas.clientHeight;
-    const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
-    const normY = (val - range.min) / (range.max - range.min);
-    const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
+    bin = Math.round(frac * (totalBins - 1));
+    bin = Math.max(0, Math.min(totalBins - 1, bin));
 
-    ctx.beginPath();
-    ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI); 
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-    
-    let freqLabel = freqHz >= 1000 
-        ? (freqHz/1000).toFixed(1) + " kHz"
-        : Math.round(freqHz) + " Hz";
-        
-    let dbLabel = val.toFixed(1) + " dB";
-    
-    let labelX = hoverX;
-    if (labelX < 60) labelX = 60;
-    if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
-
-    ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
+    // Keep the same label behavior as before (matches existing UI scaling)
+    freqHz = frac * MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
   }
+
+  if (bin < 0 || bin >= totalBins) return;
+
+  // Get the dB value at the selected bin (same math as the trace)
+  let rawVal = mpxSpectrum[bin];
+  let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
+  val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
+
+  if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
+  if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
+  // Convert dB value to screen Y (same math as grid/trace)
+  const range = getDisplayRange();
+  const logicalHeight = canvas.clientHeight;
+  const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
+
+  const normY = (val - range.min) / (range.max - range.min);
+  const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
+
+  // Draw cursor dot
+  ctx.beginPath();
+  ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.stroke();
+
+  // Draw label
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "12px Arial";
+  ctx.textAlign = "center";
+
+  const freqLabel =
+    freqHz >= 1000 ? (freqHz / 1000).toFixed(1) + " kHz" : Math.round(freqHz) + " Hz";
+  const dbLabel = val.toFixed(1) + " dB";
+
+  let labelX = hoverX;
+  if (labelX < 60) labelX = 60;
+  if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
+
+  ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
+}
+
 
   function drawMpxSpectrum() {
     if (!ctx || !canvas) return;
@@ -845,9 +906,21 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     updateZoomBoundsY();
     drawMpxBackground();
     drawMpxGrid();
-    drawMpxSpectrumTrace();
-    
-    drawHoverCursor();
+
+    // Check if we have data to draw
+    if (mpxSpectrum.length > 0) {
+        drawMpxSpectrumTrace();
+        drawHoverCursor();
+    } else {
+        // DRAW LOADING TEXT
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.font = "italic 14px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("Waiting for Data...", logicalWidth / 2, logicalHeight / 2);
+        ctx.restore();
+    }
 
     if (zoomLevel !== 1.0 || zoomLevelY > 1.0) {
       let infoText = "";
@@ -873,8 +946,6 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
       logicalWidth - 8,
       logicalHeight - 10
 	);
-
-	
   }
 
   //////////////////////////////////////////////////////////////////
@@ -891,8 +962,13 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     // SCOPE MODE: Read from msg.scope (array "w" from C#)
     if (isScopeMode) {
         // 'w' is waveform (scope) from C#
-        const sourceData = Array.isArray(msg.w) ? msg.w : (Array.isArray(msg.scope) ? msg.scope : []);
-        if (sourceData.length === 0) return;
+        const sourceData = Array.isArray(msg.w) ? msg.w : (Array.isArray(msg.scope) ? msg.scope : (Array.isArray(msg.o) ? msg.o : []));
+        if (sourceData.length === 0) {
+             // If we receive empty array, IGNORE to prevent flashing "Waiting for Data..."
+             // mpxSpectrum = []; // REMOVED
+             // drawMpxSpectrum(); // REMOVED
+             return;
+        }
 
         for (let i = 0; i < sourceData.length; i++) {
             // direct float sample value
@@ -903,7 +979,12 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     // SPECTRUM MODE: Read from msg.value (array "s" from C#)
     else {
         const sourceData = Array.isArray(msg.s) ? msg.s : (Array.isArray(msg.value) ? msg.value : []);
-        if (sourceData.length === 0) return;
+        if (sourceData.length === 0) {
+            // If we receive empty array, IGNORE to prevent flashing "Waiting for Data..."
+            // mpxSpectrum = []; // REMOVED
+            // drawMpxSpectrum(); // REMOVED
+            return;
+        }
 
         for (let i = 0; i < sourceData.length; i++) {
           const mag = (typeof sourceData[i] === 'number') ? sourceData[i] : (sourceData[i]?.m || 0);
@@ -993,7 +1074,7 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
       e.preventDefault();
       e.stopPropagation();
 
-      if (zoomLevel > 1.0) {
+      if (zoomLevel > MIN_ZOOM) { // Changed condition to allow drag in Scope (where zoom < 1)
         // Drag logic handles both Spectrum (Hz) and Scope (Samples) via viewCenter
         const visibleRange = visibleEnd - visibleStart;
         const pixelsPerUnit = (canvas.clientWidth - OFFSET_X) / visibleRange;
@@ -1055,16 +1136,32 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
         let unitAtMouse;
         const maxVal = isScopeMode ? SCOPE_SAMPLES : MPX_FMAX_HZ;
         
-        if (zoomLevel > 1) {
+        // Calculate unitAtMouse differently based on whether we are zoomed in or out
+        // The condition used to be strict (zoomLevel > 1), now flexible for Scope
+        
+        if (zoomLevel >= 1.0) {
+          // Standard zoomed-in mapping
           unitAtMouse = visibleStart + ((mouseX - OFFSET_X) / (canvas.clientWidth - OFFSET_X)) * (visibleEnd - visibleStart);
         } else {
-          // If zoomed out, assume full range mouse mapping
-          const usableWidth = (canvas.clientWidth - OFFSET_X) * CURVE_X_SCALE * zoomLevel;
-          const curveWidth = usableWidth * CURVE_X_STRETCH;
+          // Zoomed OUT mapping (Scope mode mainly)
+          // We map mouse X relative to the entire buffer centered on screen
           
           if(isScopeMode) {
-              unitAtMouse = ((mouseX - OFFSET_X) / curveWidth) * maxVal;
+              const usableWidth = (canvas.clientWidth - OFFSET_X);
+              const totalVisualWidth = usableWidth * zoomLevel; // < usableWidth
+              const leftPadding = (usableWidth - totalVisualWidth) / 2;
+              
+              // If mouse is within the waveform area
+              if (mouseX >= OFFSET_X + leftPadding && mouseX <= OFFSET_X + leftPadding + totalVisualWidth) {
+                  const relX = mouseX - (OFFSET_X + leftPadding);
+                  unitAtMouse = (relX / totalVisualWidth) * maxVal;
+              } else {
+                  unitAtMouse = maxVal / 2; // Default to center if clicking empty space
+              }
           } else {
+              // Spectrum Logic (rarely goes < 1.0)
+              const usableWidth = (canvas.clientWidth - OFFSET_X) * CURVE_X_SCALE * zoomLevel;
+              const curveWidth = usableWidth * CURVE_X_STRETCH;
               unitAtMouse = ((mouseX - OFFSET_X) / curveWidth) * MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
           }
         }
@@ -1127,15 +1224,17 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
       case "ArrowUp":    setZoom(zoomLevel * ZOOM_STEP, viewCenter); handled = true; break;
       case "ArrowDown":  setZoom(zoomLevel / ZOOM_STEP, viewCenter); handled = true; break;
       case "ArrowLeft":
-        if (zoomLevel > 1) {
-          const panStep = (visibleEnd - visibleStart) * 0.05;
+        if (zoomLevel > MIN_ZOOM) { // Allowed scrolling even if zoomed out slightly
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
           setZoom(zoomLevel, viewCenter - panStep);
         }
         handled = true;
         break;
       case "ArrowRight":
-        if (zoomLevel > 1) {
-          const panStep = (visibleEnd - visibleStart) * 0.05;
+        if (zoomLevel > MIN_ZOOM) {
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
           setZoom(zoomLevel, viewCenter + panStep);
         }
         handled = true;
@@ -1188,6 +1287,7 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     hideTooltip();
     try { parent.innerHTML = ""; } catch (e) {}
     __instances.delete(instanceKey);
+    checkHeartbeatStatus(); // Check if we should stop heartbeat
   }
 
   // Build Instance API
@@ -1207,6 +1307,9 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   KeyboardHub.installOnce();
   setupMouseEvents();
   __instances.set(instanceKey, instance);
+  
+  // Start Heartbeat Check
+  checkHeartbeatStatus();
 
   // Initial Paint
   resize();
@@ -1254,7 +1357,7 @@ function resize(target) {
 function destroy(target) {
   if (!target) {
     [...__instances.values()].forEach(i => i.destroy?.());
-    __instances.clear();
+    // __instances.clear() done inside destroy() implicitly
     return;
   }
   const byKey = __instances.get(String(target));

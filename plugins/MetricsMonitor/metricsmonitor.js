@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.1)    //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.2)    //
 //                                                             //
-//  by Highpoint               last update: 17.01.2026         //
+//  by Highpoint               last update: 20.01.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -12,29 +12,30 @@
 /////////////////////////////////////////////////////////////////
 
 (() => {
-const sampleRate = 48000;    // Do not touch - this value is automatically updated via the config file
-const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
+const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
+const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 200;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 650;    // Do not touch - this value is automatically updated via the config file
-const fftSize = 512;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotCalibration = -9.6;    // Do not touch - this value is automatically updated via the config file
+const MeterMPXCalibration = -22.7;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSCalibration = -3;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 400;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 750;    // Do not touch - this value is automatically updated via the config file
+const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 2;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
@@ -45,7 +46,7 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
   // =========================================================
   // Plugin version and update check configuration
   // =========================================================
-  const plugin_version = "2.1";
+  const plugin_version = "2.4";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
@@ -63,6 +64,7 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
   // Exposed configuration for consumption by sub-modules
   // ---------------------------------------------------------
   const CONFIG = {
+    // Note: MODULE_SEQUENCE and CANVAS_SEQUENCE are processed later based on Admin Rights
     MODULE_SEQUENCE: Array.isArray(MODULE_SEQUENCE) ? MODULE_SEQUENCE : [0],
     CANVAS_SEQUENCE: Array.isArray(CANVAS_SEQUENCE) ? CANVAS_SEQUENCE : [0],
 
@@ -79,21 +81,69 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
     StereoBoost,
     AudioMeterBoost,
     LockVolumeSlider,
+    EnableAnalyzerAdminMode
   };
 
+  // =========================================================
+  // ADMIN / TUNE AUTHENTICATION CHECK
+  // =========================================================
+  let isTuneAuthenticated = false;
+
+  function checkAdminMode() {
+      // If feature is disabled, everyone is authenticated
+      if (!CONFIG.EnableAnalyzerAdminMode) {
+          isTuneAuthenticated = true;
+          return;
+      }
+
+      const bodyText = document.body.textContent || document.body.innerText;
+      const isAdminLoggedIn =
+          bodyText.includes("You are logged in as an administrator.") ||
+          bodyText.includes("You are logged in as an adminstrator."); // Keep typo check just in case
+      const canControlReceiver =
+          bodyText.includes("You are logged in and can control the receiver.");
+
+      if (isAdminLoggedIn || canControlReceiver) {
+          // console.log("[MetricsMonitor] Admin or Tune mode found. Analyzer Access Granted.");
+          isTuneAuthenticated = true;
+      } else {
+          // console.log("[MetricsMonitor] No special authentication. Analyzer Access Restricted.");
+          isTuneAuthenticated = false;
+      }
+  }
+
+  // Run check immediately
+  checkAdminMode();
+
   // ---------------------------------------------------------
-  // Dependency Flags
-  // Determine which modules are required based on the configuration sequences
+  // Sequence Filtering based on Permissions
+  // If not authenticated, filter out ID 2 (Analyzer)
   // ---------------------------------------------------------
-  const NEED_CANVAS_2 = Array.isArray(CONFIG.CANVAS_SEQUENCE) && CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 2);
-  const NEED_CANVAS_4 = Array.isArray(CONFIG.CANVAS_SEQUENCE) && CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4);
+  function filterSequence(seq) {
+      if (isTuneAuthenticated) return seq;
+      // Remove '2' (Analyzer/Scope) from the list
+      return seq.filter(id => Number(id) !== 2);
+  }
+
+  const FINAL_MODULE_SEQUENCE = filterSequence(CONFIG.MODULE_SEQUENCE);
+  const FINAL_CANVAS_SEQUENCE = filterSequence(CONFIG.CANVAS_SEQUENCE);
+
+  // Update CONFIG for sub-modules to see the filtered list
+  CONFIG.MODULE_SEQUENCE = FINAL_MODULE_SEQUENCE;
+  CONFIG.CANVAS_SEQUENCE = FINAL_CANVAS_SEQUENCE;
+
+  // ---------------------------------------------------------
+  // Dependency Flags (Updated based on FINAL sequences)
+  // ---------------------------------------------------------
+  const NEED_CANVAS_2 = FINAL_CANVAS_SEQUENCE.some(v => Number(v) === 2);
+  const NEED_CANVAS_4 = FINAL_CANVAS_SEQUENCE.some(v => Number(v) === 4);
   const HAS_SUPPORTED_CANVAS = NEED_CANVAS_2 || NEED_CANVAS_4;
 
-  const NEED_MODULE_0 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 0);
-  const NEED_MODULE_1 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 1);
-  const NEED_MODULE_2 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 2);
-  const NEED_MODULE_3 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 3);
-  const NEED_MODULE_4 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 4);
+  const NEED_MODULE_0 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 0);
+  const NEED_MODULE_1 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 1);
+  const NEED_MODULE_2 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 2);
+  const NEED_MODULE_3 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 3);
+  const NEED_MODULE_4 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 4);
 
   // Map configuration to specific functional requirements
   const NEED_AudioMeter       = NEED_MODULE_0;                    
@@ -142,16 +192,13 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
     mmLog("log", "Log buffer cleared");
   };
 
-  mmLog("log", "Logger initialized");
+  mmLog("log", "Logger initialized. Admin Mode: " + (CONFIG.EnableAnalyzerAdminMode ? "Enabled" : "Disabled") + ". Access: " + (isTuneAuthenticated ? "Granted" : "Restricted"));
 
   // =========================================================
   // Mode handling (Panel Modules)
   // =========================================================
   let START_INDEX = 0;
-  const ACTIVE_SEQUENCE =
-    Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.length > 0
-      ? CONFIG.MODULE_SEQUENCE
-      : [0];
+  const ACTIVE_SEQUENCE = FINAL_MODULE_SEQUENCE.length > 0 ? FINAL_MODULE_SEQUENCE : [0];
 
   if (START_INDEX < 0 || START_INDEX >= ACTIVE_SEQUENCE.length) START_INDEX = 0;
 
@@ -166,11 +213,10 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
   let activeCanvasMode = null; // 2 or 4
   let isCanvasVisible = false; // Toggle state
 
-  // Select the initial canvas mode based on configuration
+  // Select the initial canvas mode based on filtered configuration
   function pickInitialCanvasMode() {
-    if (!Array.isArray(CONFIG.CANVAS_SEQUENCE)) return null;
-    if (CONFIG.CANVAS_SEQUENCE.length === 0) return null;
-    return Number(CONFIG.CANVAS_SEQUENCE[0]);
+    if (FINAL_CANVAS_SEQUENCE.length === 0) return null;
+    return Number(FINAL_CANVAS_SEQUENCE[0]);
   }
 
 
@@ -518,48 +564,6 @@ function syncTextWebSocketMode(isInitial) {
       }
     } else if (isCanvasVisible && activeCanvasMode === 2) {
       if (mode !== 1) window.MetricsMeters?.createWebSocket();
-      if (mode !== 2) {
-        // --- 1. Analyzer Init ---
-        if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
-          window.MetricsAnalyzer.init("mm-combo-analyzer-container", {
-            instanceKey: "combo-main",
-            embedded: true,
-            useLegacyCss: false
-          });
-
-          // Safe Resize
-          setTimeout(() => {
-            const wrap = document.getElementById("mm-combo-analyzer-container");
-            const canvas = wrap ? (wrap.querySelector("canvas") || document.querySelector("#mm-combo-analyzer-container canvas")) : null;
-
-            if (wrap && canvas) {
-                wrap.style.border = "none";
-                const safeResize = () => {
-                    const width = wrap.clientWidth;
-                    const height = wrap.clientHeight;
-                    if (!width || width === 0) { window.requestAnimationFrame(safeResize); return; }
-                    const dpr = window.devicePixelRatio || 1;
-                    if (canvas.width !== Math.floor(width * dpr)) {
-                         canvas.width = Math.floor(width * dpr);
-                         canvas.height = Math.floor(height * dpr);
-                         const ctx = canvas.getContext("2d");
-                         if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                         try {
-                            if (typeof Chart !== "undefined" && Chart.getChart) {
-                                const ch = Chart.getChart(canvas);
-                                if (ch) ch.resize();
-                            }
-                        } catch(e){}
-                    }
-                };
-                window.requestAnimationFrame(safeResize);
-                const resizeObserver = new ResizeObserver(() => { window.requestAnimationFrame(safeResize); });
-                resizeObserver.observe(wrap);
-            } 
-          }, 200); 
-        }
-      }
-
     }
   }
 
@@ -691,7 +695,8 @@ function syncTextWebSocketMode(isInitial) {
 
     if (allowModuleToggle) {
       const customTooltip = document.createElement("div");
-      const activeKeys = ACTIVE_SEQUENCE.map((_, index) => index + 1).join(",");
+      // Use mapped IDs (1-indexed) for tooltip, but check logic
+      const activeKeys = ACTIVE_SEQUENCE.map((val, index) => index + 1).join(",");
       customTooltip.textContent = "Click here or press a number " + activeKeys + " to change the display mode.";
 
       customTooltip.style.cssText = `
@@ -843,7 +848,7 @@ ensureTextSocket().then(() => {
   function createMpxSignalButton() {
     installMpxSignalToggleHandlerOnce();
     
-    // CRITICAL: Stop here if CANVAS_SEQUENCE does not contain 2 or 4.
+    // CRITICAL: Stop here if CANVAS_SEQUENCE does not contain 2 or 4 (filtered check)
     if (!HAS_SUPPORTED_CANVAS) return;
 
     const buttonId = "mpx-signal-toggle-button";
@@ -1087,15 +1092,28 @@ ensureTextSocket().then(() => {
       // --- TURN OFF (Show Standard canvas) ---
       if (button) {
         button.classList.remove("active");
-
         button.removeAttribute("disabled");
-
         button.setAttribute("aria-pressed","false");
-}
+      }
 
-      // Hide MM elements
-      if (mmContainerCombo) mmContainerCombo.style.display = "none";
-      if (mmContainerSignal) mmContainerSignal.style.display = "none";
+      // Hide MM elements & STOP Heartbeat (destroy instances)
+      if (mmContainerCombo) {
+          mmContainerCombo.style.display = "none";
+          // If we had an analyzer active in Combo, destroy it to stop heartbeat
+          if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) {
+              window.MetricsAnalyzer.destroy("mm-combo-analyzer-container");
+          }
+      }
+      
+      if (mmContainerSignal) {
+          mmContainerSignal.style.display = "none";
+          // Clean up signal analyzer if needed (Canvas 4)
+          if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) {
+               window.MetricsSignalAnalyzer.destroy("main-signal-analyzer-container");
+          } else if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.cleanup) {
+               window.MetricsSignalAnalyzer.cleanup();
+          }
+      }
 
       // Reset container styles to default
       resetContainerStyles();
@@ -1157,12 +1175,9 @@ ensureTextSocket().then(() => {
 
     Promise.all(scriptsToLoad.map(loadScript))
       .then(() => {
-        // Prepare the MM canvases in background, but keep hidden until button pressed
-        if (activeCanvasMode === 2) {
-          replaceMainCanvasWithMpxComboIfRequired();
-        } else if (activeCanvasMode === 4) {
-          replaceMainCanvasIfRequired();
-        }
+        // NOTE: We REMOVED the pre-loading logic here.
+        // The canvas instances (and thus the heartbeat) will ONLY start
+        // when the user clicks the toggle button or selects a panel mode.
 
         // Setup the toggle logic for clicking inside the MM canvas (switching 2 <-> 4)
         setupCanvasToggle();
@@ -1211,16 +1226,33 @@ ensureTextSocket().then(() => {
     }
 
     setTimeout(() => {
-      // Ensure target exists
-      if (targetMode === 2) replaceMainCanvasWithMpxComboIfRequired();
-      else if (targetMode === 4) replaceMainCanvasIfRequired();
-
-      // Swap
+      
+      // 1. DESTROY OLD
+      // We must explicitly destroy the old analyzer to stop the heartbeat
+      if (activeCanvasMode === 2) {
+          if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) {
+              window.MetricsAnalyzer.destroy("mm-combo-analyzer-container");
+          }
+      } else if (activeCanvasMode === 4) {
+          if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) {
+               window.MetricsSignalAnalyzer.destroy("main-signal-analyzer-container");
+          }
+      }
+      
+      // Hide old container explicitly
       if (oldEl) {
           oldEl.style.display = 'none';
           oldEl.style.opacity = '1'; // reset for next time
       }
-      
+
+      // 2. UPDATE MODE
+      activeCanvasMode = targetMode;
+
+      // 3. CREATE/SHOW NEW
+      // This function handles display:flex AND calling init() again
+      if (targetMode === 2) replaceMainCanvasWithMpxComboIfRequired();
+      else if (targetMode === 4) replaceMainCanvasIfRequired();
+
       const createdEl = (targetMode === 2) ? document.getElementById("mm-mpx-combo-flex") : document.getElementById("mm-signal-analyzer-flex");
       if (createdEl) {
           createdEl.style.opacity = '0';
@@ -1232,7 +1264,6 @@ ensureTextSocket().then(() => {
           });
       }
 
-      activeCanvasMode = targetMode;
       syncTextWebSocketMode(false);
       
       // Update scaling immediately for new element
@@ -1241,14 +1272,13 @@ ensureTextSocket().then(() => {
       
       setTimeout(() => { isCanvasSwitching = false; }, FADE_MS);
 
-      cleanupCurrentMode();  // Cleanup before switching on canvas mode switch
     }, FADE_MS);
   }
 
   function setupCanvasToggle() {
     const supported = [2, 4];
     // Robust check for numbers/strings in filter
-    const active = (CONFIG.CANVAS_SEQUENCE || []).filter((m) => supported.some(s => Number(s) === Number(m))).map(Number);
+    const active = FINAL_CANVAS_SEQUENCE.filter((m) => supported.some(s => Number(s) === Number(m))).map(Number);
     if (active.length < 2) return;
 
     // Attach click listener to wrapper container
@@ -1467,288 +1497,184 @@ ensureTextSocket().then(() => {
     const canvasContainer = document.querySelector(".canvas-container.hide-phone");
     if (!canvasContainer) return;
 
-    if (document.getElementById("mm-mpx-combo-flex")) {
-      if (isCanvasVisible && activeCanvasMode === 2) {
-        document.getElementById("mm-mpx-combo-flex").style.display = 'flex';
-      }
-      return;
-    }
+    const comboId = "mm-mpx-combo-flex";
+    let flex = document.getElementById(comboId);
 
-    mmLog("log", "[MM-DEBUG] Creating MPX Combo Layout (Static Scale)...");
+    // DOM Creation logic (First Run Only)
+    if (!flex) {
+        mmLog("log", "[MM-DEBUG] Creating MPX Combo Layout (Static Scale)...");
 
-    // Fixed Internal Height
-    const INTERNAL_HEIGHT = 160; 
-    const METERS_COL_W = 180;
+        // Fixed Internal Height
+        const INTERNAL_HEIGHT = 160; 
+        const METERS_COL_W = 180;
 
- const CUSTOM_CSS = `
-      /* MAIN CONTAINER SETUP */
-      #mm-mpx-combo-flex {
-        display: none;
-        align-items: stretch;
-        width: 100%;
-        height: ${INTERNAL_HEIGHT}px !important;
-        min-height: ${INTERNAL_HEIGHT}px !important;
-        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
-        border: 1px solid rgba(255,255,255,0.45);
-        box-sizing: border-box;
-        transform-origin: top center;
-        position: relative;
-        z-index: 5;
-        overflow: hidden;
+        const CUSTOM_CSS = `
+          /* MAIN CONTAINER SETUP */
+          #mm-mpx-combo-flex {
+            display: none;
+            align-items: stretch;
+            width: 100%;
+            height: ${INTERNAL_HEIGHT}px !important;
+            min-height: ${INTERNAL_HEIGHT}px !important;
+            background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+            border: 1px solid rgba(255,255,255,0.45);
+            box-sizing: border-box;
+            transform-origin: top center;
+            position: relative;
+            z-index: 5;
+            overflow: hidden;
 
-        /* Static Transform: 10px right, 10px up */
-        transform: translate(10px, -10px);
-        margin-bottom: -20px; /* Compensate for the upward shift layout-wise if needed */
-      }
-      
-      /* COLUMN FOR THE 3 METERS */
-      #mm-combo-meters-col { 
-        width: ${METERS_COL_W}px; 
-        min-width: ${METERS_COL_W}px; 
-        flex: 0 0 ${METERS_COL_W}px;
-        top: 0px; 
-        display: flex; 
-        flex-direction: row; 
-        justify-content: space-evenly; /* Even distribution */
-        align-items: stretch; /* Use full height */
-        padding: 10px 2px 2px 2px; /* Some padding on top */
-        box-sizing: border-box; 
-        border-right: 1px solid rgba(255,255,255,0.1); 
-        position: relative; 
-        z-index: 5; 
-        height: 100%;
-      }
-
-      /* ANALYZER RIGHT (unchanged) */
-      #mm-combo-analyzer-col { 
-        flex: 1 1 auto; 
-        min-width: 0;
-        height: 100%; 
-        position: relative; 
-        overflow: hidden; 
-        padding: 0; 
-        margin: 0; 
-        z-index: 10; 
-        display: flex;
-        flex-direction: column;
-      }
-
-      #mm-combo-analyzer-container { 
-        width: 100% !important; 
-        height: 100% !important; 
-        flex: 1;
-        border: none !important; 
-        margin: 0 !important; 
-        padding: 0 !important; 
-        box-shadow: none !important; 
-        overflow: hidden !important; 
-        position: relative;
-      }
-
-      #mm-combo-analyzer-container canvas { 
-        width: 100% !important; 
-        height: 100% !important; 
-        border: none !important; 
-        outline: none !important; 
-        display: block !important; 
-      }
-
-      /* --- METER DESIGN START --- */
-      
-      /* Container for ONE Meter (e.g. PILOT) */
-      #mm-combo-meters-col .level-meter { 
-        margin: -5px 1px; 
-        height: 100%; 
-        /* Important: Flexbox for vertical layout (Top area + Label bottom) */
-        display: flex; 
-        flex-direction: column; 
-        justify-content: flex-start;
-        position: relative;
-        flex: 1; /* Each meter gets equal space (approx 60px) */
-        overflow: visible !important;
-      }
-
-      /* Upper area: Contains Scale (left) and Bar+Value (right) */
-      #mm-combo-meters-col .meter-top {
-        display: flex !important;
-        flex-direction: row !important; /* Side by side! */
-        width: 100%;
-        height: 100%; /* Leave space for bottom label */
-        position: relative;
-      }
-
-      /* 1. Left Column: Scale (Numbers) */
-      #mm-combo-meters-col .meter-scale {
-        display: flex !important;
-        flex-direction: column;
-        justify-content: space-between; /* Distribute numbers evenly */
-        
-        width: 30px !important; /* Fixed narrow width */
-        min-width: 30px !important;
-        text-align: right !important;
-        
-        /* Upward shift as requested */
-        margin-top: 0px !important;
-        margin-right: -7px !important; 		
-        padding-bottom: 5px; /* Air at bottom */
-        
-        font-size: 12px !important;
-        line-height: 1 !important;
-        color: rgba(255,255,255,0.7);
-        z-index: 2;
-        
-        /* Scale adjustment requested: compress vertically to align 0 properly */
-        transform: scale(0.75);
-        transform-origin: top;
-      }
-
-      /* 2. Right Column: Wrapper for Bar and Current Value */
-      #mm-combo-meters-col .meter-wrapper { 
-        flex: 1; /* Takes remaining space */
-        width: 0; /* IMPORTANT: Prevent flex items from overflowing container */
-        display: flex; 
-        flex-direction: column; 
-        align-items: center; /* Center bar and value horizontally */
-        justify-content: flex-end; /* Bar grows from bottom */
-        height: 100%;
-        position: relative;
-      }
-
-      /* The actual Bar (Canvas) */
-      #mm-combo-meters-col .level-meter canvas { 
-        display: block !important; 
-        visibility: visible !important; 
-        /* Limit width to prevent overlapping scale */
-        width: 100% !important; 
-        max-width: 30px !important; /* Fix bar width for clean look */
-        height: auto !important; 
-        flex: 1 1 auto !important; /* Fills height */
-        margin-bottom: 0px !important;
-      } 
-	  
-	  #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 5px !important; line-height: 1.0 !important; font-size: 10px !important; }
-      
-      /* V1.8 FIX: Transparent gaps that survive zooming */
-      #mm-combo-meters-col .meter-bar .segment {
-        border-bottom: 1px solid transparent !important; /* The gap space */
-        background-clip: padding-box !important;         /* Cut color at border */
-        margin-bottom: 0 !important;                     /* No margin needed */
-        box-sizing: border-box;                          /* Height includes border */
-      }
-
-      /* HIDE UNUSED ELEMENTS */
-      #mm-combo-meters-inner .stereo-group, 
-      #mm-combo-meters-inner #left-meter-wrapper, 
-      #mm-combo-meters-inner #right-meter-wrapper, 
-      #mm-combo-meters-inner #hf-meter-wrapper, 
-      #mm-combo-meters-inner #eqHintWrapper, 
-      #mm-combo-meters-inner #eqHintText { 
-        display: none !important; 
-      }
-      
-      #mm-mpx-combo-flex #volumeSlider, 
-      #mm-mpx-combo-flex [id*="volume"], 
-      #mm-mpx-combo-flex [class*="volume"] { 
-        display: none !important; 
-      }
-    `;
-
-    let style = document.getElementById("metrics-mpx-combo-css");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "metrics-mpx-combo-css";
-      document.head.appendChild(style);
-    }
-    style.textContent = CUSTOM_CSS;
-
-    const flex = document.createElement("div");
-    flex.id = "mm-mpx-combo-flex";
-    if (isCanvasVisible && activeCanvasMode === 2) flex.style.display = "flex";
-    else flex.style.display = "none";
-    canvasContainer.appendChild(flex);
-
-    // --- DOM Structure creation ---
-    const leftCol = document.createElement("div");
-    leftCol.id = "mm-combo-meters-col";
-    flex.appendChild(leftCol);
-
-    const metersContainer = document.createElement("div");
-    metersContainer.id = "mm-combo-meters-inner";
-    metersContainer.style.display = "flex";
-    metersContainer.style.width = "100%";
-    metersContainer.style.height = "100%";
-    metersContainer.style.justifyContent = "space-around";
-    leftCol.appendChild(metersContainer);
-
-    const rightCol = document.createElement("div");
-    rightCol.id = "mm-combo-analyzer-col";
-    flex.appendChild(rightCol);
-
-    const analyzerContainer = document.createElement("div");
-    analyzerContainer.id = "mm-combo-analyzer-container";
-    rightCol.appendChild(analyzerContainer);
-
-    // --- 1. Analyzer Init ---
-    if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
-      window.MetricsAnalyzer.init("mm-combo-analyzer-container", {
-        instanceKey: "combo-main",
-        embedded: true,
-        useLegacyCss: false
-      });
-
-      // Safe Resize
-      setTimeout(() => {
-        const wrap = document.getElementById("mm-combo-analyzer-container");
-        const canvas = wrap ? (wrap.querySelector("canvas") || document.querySelector("#mm-combo-analyzer-container canvas")) : null;
-
-        if (wrap && canvas) {
-            wrap.style.border = "none";
-            const safeResize = () => {
-                const width = wrap.clientWidth;
-                const height = wrap.clientHeight;
-                if (!width || width === 0) { window.requestAnimationFrame(safeResize); return; }
-                const dpr = window.devicePixelRatio || 1;
-                if (canvas.width !== Math.floor(width * dpr)) {
-                     canvas.width = Math.floor(width * dpr);
-                     canvas.height = Math.floor(height * dpr);
-                     const ctx = canvas.getContext("2d");
-                     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                     try {
-                        if (typeof Chart !== "undefined" && Chart.getChart) {
-                            const ch = Chart.getChart(canvas);
-                            if (ch) ch.resize();
-                        }
-                    } catch(e){}
-                }
-            };
-            window.requestAnimationFrame(safeResize);
-            const resizeObserver = new ResizeObserver(() => { window.requestAnimationFrame(safeResize); });
-            resizeObserver.observe(wrap);
-        } 
-      }, 200); 
-    }
-
-    // --- 2. Meters Init ---
-    if (window.MetricsMeters && window.MetricsMeters.initMeters) {
-      setTimeout(() => {
-        window.MetricsMeters.initMeters(metersContainer);
-        if (window.MetricsMeters.startAnimation) window.MetricsMeters.startAnimation(); 
-
-        const COMBO_PREFIX = "mm-combo-";
-        const idsToPrefix = ["left-meter", "right-meter", "hf-meter", "stereo-pilot-meter", "rds-meter", "mpx-meter"];
-        
-        idsToPrefix.forEach((id) => {
-          const el = metersContainer.querySelector(`#${id}`);
-          if (el) {
-             el.id = COMBO_PREFIX + id;
-             const wrapper = el.closest(".level-meter");
-             if (wrapper) wrapper.id = id + "-wrapper";
-             if (el.width === 0) el.width = 40;
-             if (el.height === 0) el.height = 200;
+            /* Static Transform: 10px right, 10px up */
+            transform: translate(10px, -10px);
+            margin-bottom: -20px; 
           }
-        });
+          
+          /* COLUMN FOR THE 3 METERS */
+          #mm-combo-meters-col { 
+            width: ${METERS_COL_W}px; 
+            min-width: ${METERS_COL_W}px; 
+            flex: 0 0 ${METERS_COL_W}px;
+            top: 0px; 
+            display: flex; 
+            flex-direction: row; 
+            justify-content: space-evenly; 
+            align-items: stretch; 
+            padding: 10px 2px 2px 2px; 
+            box-sizing: border-box; 
+            border-right: 1px solid rgba(255,255,255,0.1); 
+            position: relative; 
+            z-index: 5; 
+            height: 100%;
+          }
 
-      }, 250);
+          /* ANALYZER RIGHT */
+          #mm-combo-analyzer-col { 
+            flex: 1 1 auto; 
+            min-width: 0;
+            height: 100%; 
+            position: relative; 
+            overflow: hidden; 
+            padding: 0; 
+            margin: 0; 
+            z-index: 10; 
+            display: flex;
+            flex-direction: column;
+          }
+
+          #mm-combo-analyzer-container { 
+            width: 100% !important; 
+            height: 100% !important; 
+            flex: 1;
+            border: none !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            box-shadow: none !important; 
+            overflow: hidden !important; 
+            position: relative;
+          }
+
+          #mm-combo-analyzer-container canvas { 
+            width: 100% !important; 
+            height: 100% !important; 
+            border: none !important; 
+            outline: none !important; 
+            display: block !important; 
+          }
+
+          /* METER DESIGN (Minimal) */
+          #mm-combo-meters-col .level-meter { margin: -5px 1px; height: 100%; display: flex; flex-direction: column; justify-content: flex-start; position: relative; flex: 1; overflow: visible !important; }
+          #mm-combo-meters-col .meter-top { display: flex !important; flex-direction: row !important; width: 100%; height: 100%; position: relative; }
+          #mm-combo-meters-col .meter-scale { display: flex !important; flex-direction: column; justify-content: space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: -7px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
+          #mm-combo-meters-col .meter-wrapper { flex: 1; width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+          #mm-combo-meters-col .level-meter canvas { display: block !important; visibility: visible !important; width: 100% !important; max-width: 30px !important; height: auto !important; flex: 1 1 auto !important; margin-bottom: 0px !important; } 
+          #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 5px !important; line-height: 1.0 !important; font-size: 10px !important; }
+          #mm-combo-meters-col .meter-bar .segment { border-bottom: 1px solid transparent !important; background-clip: padding-box !important; margin-bottom: 0 !important; box-sizing: border-box; }
+
+          /* HIDE UNUSED */
+          #mm-combo-meters-inner .stereo-group, #mm-combo-meters-inner #left-meter-wrapper, #mm-combo-meters-inner #right-meter-wrapper, #mm-combo-meters-inner #hf-meter-wrapper, #mm-combo-meters-inner #eqHintWrapper, #mm-combo-meters-inner #eqHintText { display: none !important; }
+          #mm-mpx-combo-flex #volumeSlider, #mm-mpx-combo-flex [id*="volume"], #mm-mpx-combo-flex [class*="volume"] { display: none !important; }
+        `;
+
+        let style = document.getElementById("metrics-mpx-combo-css");
+        if (!style) {
+          style = document.createElement("style");
+          style.id = "metrics-mpx-combo-css";
+          document.head.appendChild(style);
+        }
+        style.textContent = CUSTOM_CSS;
+
+        flex = document.createElement("div");
+        flex.id = comboId;
+        flex.style.display = "none";
+        canvasContainer.appendChild(flex);
+
+        // --- DOM Structure ---
+        const leftCol = document.createElement("div");
+        leftCol.id = "mm-combo-meters-col";
+        flex.appendChild(leftCol);
+
+        const metersContainer = document.createElement("div");
+        metersContainer.id = "mm-combo-meters-inner";
+        metersContainer.style.display = "flex";
+        metersContainer.style.width = "100%";
+        metersContainer.style.height = "100%";
+        metersContainer.style.justifyContent = "space-around";
+        leftCol.appendChild(metersContainer);
+
+        const rightCol = document.createElement("div");
+        rightCol.id = "mm-combo-analyzer-col";
+        flex.appendChild(rightCol);
+
+        const analyzerContainer = document.createElement("div");
+        analyzerContainer.id = "mm-combo-analyzer-container";
+        rightCol.appendChild(analyzerContainer);
+        
+        // --- Meters Init (Structure only) ---
+        if (window.MetricsMeters && window.MetricsMeters.initMeters) {
+          setTimeout(() => {
+            window.MetricsMeters.initMeters(metersContainer);
+            if (window.MetricsMeters.startAnimation) window.MetricsMeters.startAnimation(); 
+
+            const COMBO_PREFIX = "mm-combo-";
+            const idsToPrefix = ["left-meter", "right-meter", "hf-meter", "stereo-pilot-meter", "rds-meter", "mpx-meter"];
+            
+            idsToPrefix.forEach((id) => {
+              const el = metersContainer.querySelector(`#${id}`);
+              if (el) {
+                 el.id = COMBO_PREFIX + id;
+                 const wrapper = el.closest(".level-meter");
+                 if (wrapper) wrapper.id = id + "-wrapper";
+                 if (el.width === 0) el.width = 40;
+                 if (el.height === 0) el.height = 200;
+              }
+            });
+          }, 250);
+        }
+    }
+
+    // --- VISIBILITY & LOGIC INIT (Runs on Toggle) ---
+    // If the canvas should be visible, show it and re-init the Analyzer
+    if (isCanvasVisible && activeCanvasMode === 2) {
+      flex.style.display = 'flex';
+      
+      if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
+          // Force layout reflow before initializing
+          // This ensures the container has dimensions when init() calls resize()
+          void flex.offsetWidth; 
+
+          window.MetricsAnalyzer.init("mm-combo-analyzer-container", {
+            instanceKey: "combo-main",
+            embedded: true,
+            useLegacyCss: false
+          });
+
+          // Extra safety resize after initialization
+          setTimeout(() => {
+            if (window.MetricsAnalyzer.resize) {
+                window.MetricsAnalyzer.resize("mm-combo-analyzer-container");
+            }
+          }, 50);
+      }
     }
   }
   
@@ -1915,7 +1841,7 @@ ensureTextSocket().then(() => {
         
         if (sdrGraph && sdrGraph.style.display !== 'none' && btnContainer) {
             // Ensure container is visible and has correct z-index when graph shows
-            btnContainer.style.zIndex = "1000";
+            btnContainer.style.zIndex = "8";
             btnContainer.style.display = "block";
         }
     });
