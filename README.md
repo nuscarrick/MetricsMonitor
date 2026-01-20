@@ -1,11 +1,10 @@
 # MetricsMonitor
 
-FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers and spectrum analyzer for FM audio, FM baseband and MPX signal.
+FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1348" height="662" alt="1d" src="https://github.com/user-attachments/assets/96b5cdd7-ba36-48c4-b206-0ed803d4171d" />
-<img width="1177" height="174" alt="image" src="https://github.com/user-attachments/assets/82e85238-e51d-4b99-bccf-e70245c5b85f" />
-<img width="1178" height="173" alt="image" src="https://github.com/user-attachments/assets/9d961dc7-fd15-4e52-88a8-6b6680d0cb27" />
-<img width="1178" height="174" alt="grafik" src="https://github.com/user-attachments/assets/6ea707e1-8d87-466d-bbb4-b0f266e3586d" />
+<img width="965" height="802" alt="grafik" src="https://github.com/user-attachments/assets/82753fa4-fe04-4eb4-b780-10ec7c4a6a6c" />
+
+
 
 ## v2.2
 - Improved Pilot, MPX, and RDS calculations
@@ -95,10 +94,11 @@ The following variables can be changed in the metricsmonitor.json config file:
 
     /* Layout & UI */
 	
-    "MODULE_SEQUENCE": "1,2,0,3,4"   //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,0,4" - default).
+    "MODULE_SEQUENCE": "1,2,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,0,4" - default).
 	"CANVAS_SEQUENCE": "2,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
-    "LockVolumeSlider": true         //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
-	"EnableSpectrumOnLoad": false    //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
+    "LockVolumeSlider": true,        //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
+	"EnableSpectrumOnLoad": false,   //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
+    "EnableAnalyzerAdminMode": false,//  Set to true to restricts analyzer/oscilloscope display to administrators (default ist false).
 
     /* Colors & Peaks */
     "MeterColorSafe": "rgb(0, 255, 0)";       // Change the color here for the safe range of the meter displays. The default is "rgb(0, 255, 0)".
