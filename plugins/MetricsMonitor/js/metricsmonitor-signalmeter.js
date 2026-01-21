@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js                   (V2.2)   //
+//  metricsmonitor-signalmeter.js            (V2.2 Hotfix)   //
 //                                                           //
-//  by Highpoint               last update: 20.01.2026       //
+//  by Highpoint               last update: 21.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -31,7 +31,7 @@ const SpectrumYOffset = -40;    // Do not touch - this value is automatically up
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -275,9 +275,6 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
       updatePeakValue(peaks, key, safeLevel, peakCfg.holdMs, peakCfg.smoothing);
       setPeakSegment(meter, peaks[key].value, meterId);
     } 
-    // If it's HF, we just paint the peak if we had a stored value, but HF logic in this specific function 
-    // relies on the `peaks` object structure passed in, which only has left/right in the factory. 
-    // The HF peak is handled inside _onSig usually, but we need to ensure setPeakSegment is called there.
   }
 
   // -------------------------------------------------------
@@ -293,7 +290,7 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
       // Registered instances (key -> instance)
       instances: new Map(), 
 
-      // Latest values (for late joiners)
+      // Latest values
       latestSigBase: null,
       unit: (window.MetricsMonitor && typeof window.MetricsMonitor.getSignalUnit === 'function')
         ? (window.MetricsMonitor.getSignalUnit() || 'dbf').toLowerCase()
@@ -313,7 +310,6 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
         if (this.connecting) return this.connecting;
 
         this.connecting = (async () => {
-          // Wait for socketPromise availability
           while (!window.socketPromise) {
             await new Promise(r => setTimeout(r, 400));
           }
@@ -335,10 +331,7 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
 
           this.connected = true;
           return ws;
-        })().finally(() => {
-          // Promise cleanup
-        });
-
+        })().finally(() => {});
         return this.connecting;
       },
 
@@ -361,7 +354,7 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
       },
 
       // -----------------------
-      // Shared Audio Analyser
+      // Shared Audio Analyser (Exact Logic from AudioMeter)
       // -----------------------
       audio: {
         ctx: null,
@@ -373,93 +366,130 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
         dataR: null,
         rafId: null,
         setupIntervalId: null,
-        subscribers: new Set(), // instances
+        subscribers: new Set(),
       },
 
       ensureAudio() {
         const A = this.audio;
-        if (A.setupIntervalId) return;
-
+        
+        // This function is called repeatedly via interval, just like in audiometer.js
         const trySetup = () => {
-          if (!window.Stream || !Stream.Fallback || !Stream.Fallback.Player || !Stream.Fallback.Player.Amplification) return;
-          const player = Stream.Fallback.Player;
-          const sourceNode = player.Amplification;
-          if (!sourceNode || !sourceNode.context) return;
-
-          const ctx = sourceNode.context;
-          if (A.ctx !== ctx) {
-            A.ctx = ctx;
-            A.splitter = null;
-            A.analyserL = null;
-            A.analyserR = null;
-            A.dataL = null;
-            A.dataR = null;
-            A.sourceNode = null;
-          }
-          A.sourceNode = sourceNode;
-
-          if (!A.splitter) {
-            try {
-              A.splitter = ctx.createChannelSplitter(2);
-              A.analyserL = ctx.createAnalyser();
-              A.analyserR = ctx.createAnalyser();
-              A.analyserL.fftSize = 2048;
-              A.analyserR.fftSize = 2048;
-              A.dataL = new Uint8Array(A.analyserL.frequencyBinCount);
-              A.dataR = new Uint8Array(A.analyserR.frequencyBinCount);
-
-              // Connect nodes (ignore if already connected)
-              try { sourceNode.connect(A.splitter); } catch {}
-              try { A.splitter.connect(A.analyserL, 0); } catch {}
-              try { A.splitter.connect(A.analyserR, 1); } catch {}
-            } catch (e) {
-              // Retry on failure
-              return;
+            if (
+                typeof Stream === "undefined" ||
+                !Stream ||
+                !Stream.Fallback ||
+                !Stream.Fallback.Player ||
+                !Stream.Fallback.Player.Amplification
+            ) {
+                // Not ready yet
+                return;
             }
-          }
 
-          // Start RAF loop
-          if (!A.rafId) {
-            const loop = () => {
-              try {
-                if (A.analyserL && A.analyserR && A.dataL && A.dataR) {
-                  A.analyserL.getByteTimeDomainData(A.dataL);
-                  A.analyserR.getByteTimeDomainData(A.dataR);
-                  let maxL = 0;
-                  let maxR = 0;
-                  for (let i = 0; i < A.dataL.length; i++) {
-                    const d = Math.abs(A.dataL[i] - 128);
-                    if (d > maxL) maxL = d;
-                  }
-                  for (let i = 0; i < A.dataR.length; i++) {
-                    const d = Math.abs(A.dataR[i] - 128);
-                    if (d > maxR) maxR = d;
-                  }
-                  const sBoost = (window.MetricsMonitor && window.MetricsMonitor.Config)
-                    ? (window.MetricsMonitor.Config.StereoBoost ?? 4)
-                    : 4;
-                  let levelL = ((maxL / 128) * 100) * sBoost;
-                  let levelR = ((maxR / 128) * 100) * sBoost;
-                  levelL = Math.min(100, Math.max(0, levelL));
-                  levelR = Math.min(100, Math.max(0, levelR));
+            const player = Stream.Fallback.Player;
+            const sourceNode = player.Amplification;
 
-                  this.sharedLevels.left = levelL;
-                  this.sharedLevels.right = levelR;
+            if (!sourceNode || !sourceNode.context) return;
 
-                  for (const inst of A.subscribers) {
-                    try { inst._onAudio(levelL, levelR); } catch {}
-                  }
+            try {
+                const ctx = sourceNode.context;
+
+                // Reset if context changed (tab changed, etc)
+                if (A.ctx !== ctx) {
+                    A.ctx = ctx;
+                    A.splitter = null;
+                    A.analyserL = null;
+                    A.analyserR = null;
+                    A.dataL = null;
+                    A.dataR = null;
+                    A.sourceNode = null;
                 }
-              } catch {}
-              A.rafId = requestAnimationFrame(loop);
+
+                if (!A.analyserL || !A.dataL) {
+                     A.analyserL = ctx.createAnalyser();
+                     A.analyserR = ctx.createAnalyser();
+                     A.analyserL.fftSize = 2048;
+                     A.analyserR.fftSize = 2048;
+                     A.dataL = new Uint8Array(A.analyserL.frequencyBinCount);
+                     A.dataR = new Uint8Array(A.analyserR.frequencyBinCount);
+                }
+
+                // Check source node connection
+                if (A.sourceNode !== sourceNode) {
+                    A.sourceNode = sourceNode;
+                    
+                    if (!A.splitter) {
+                        A.splitter = ctx.createChannelSplitter(2);
+                        try { A.splitter.connect(A.analyserL, 0); } catch(e){}
+                        try { A.splitter.connect(A.analyserR, 1); } catch(e){}
+                    }
+                    
+                    try { 
+                        A.sourceNode.connect(A.splitter); 
+                    } catch(e) {
+                        if (e.name !== 'InvalidAccessError') console.warn('SignalMeter Audio Connect Error:', e);
+                    }
+                }
+
+                // Ensure loop is running
+                if (!A.rafId) {
+                   startAudioLoop();
+                }
+
+            } catch (e) {
+                console.error("SignalMeter: Audio Setup Error", e);
+            }
+        };
+        
+        const startAudioLoop = () => {
+            if (A.rafId) cancelAnimationFrame(A.rafId);
+
+            const loop = () => {
+                if (A.ctx && A.ctx.state === 'suspended') {
+                    A.rafId = requestAnimationFrame(loop);
+                    return;
+                }
+
+                if (A.analyserL && A.analyserR && A.dataL && A.dataR) {
+                    A.analyserL.getByteTimeDomainData(A.dataL);
+                    A.analyserR.getByteTimeDomainData(A.dataR);
+                    
+                    let maxL = 0;
+                    let maxR = 0;
+                    for (let i = 0; i < A.dataL.length; i++) {
+                        const d = Math.abs(A.dataL[i] - 128);
+                        if (d > maxL) maxL = d;
+                    }
+                    for (let i = 0; i < A.dataR.length; i++) {
+                        const d = Math.abs(A.dataR[i] - 128);
+                        if (d > maxR) maxR = d;
+                    }
+                    
+                    const sBoost = (window.MetricsMonitor && window.MetricsMonitor.Config)
+                        ? (window.MetricsMonitor.Config.StereoBoost ?? 4)
+                        : 4;
+                    
+                    let levelL = ((maxL / 128) * 100) * sBoost;
+                    let levelR = ((maxR / 128) * 100) * sBoost;
+                    
+                    levelL = Math.min(100, Math.max(0, levelL));
+                    levelR = Math.min(100, Math.max(0, levelR));
+
+                    this.sharedLevels.left = levelL;
+                    this.sharedLevels.right = levelR;
+
+                    for (const inst of A.subscribers) {
+                        try { inst._onAudio(levelL, levelR); } catch {}
+                    }
+                }
+                A.rafId = requestAnimationFrame(loop);
             };
             A.rafId = requestAnimationFrame(loop);
-          }
         };
 
-        // Poll for stream availability
-        A.setupIntervalId = setInterval(trySetup, 1200);
-        trySetup();
+        if (!A.setupIntervalId) {
+            A.setupIntervalId = setInterval(trySetup, 1000);
+            trySetup();
+        }
       }
     };
   }
