@@ -167,6 +167,21 @@ Option 3 - http://highpoint2000.selfhost.de:8080
 
      4 - activate Signal Plot 
 
+## Display modes (Values ​​for CANVAS_SEQUENCE)
+
+### MPX Analyzer / Oscilloscope 
+
+<img width="1221" height="361" alt="grafik" src="https://github.com/user-attachments/assets/1dc9364c-67ff-4714-ba87-22060a8db682" />
+
+
+    2 – activate MPX Analyzer/Oscilloscope
+	
+### Signal Plot
+
+<img width="1232" height="192" alt="grafik" src="https://github.com/user-attachments/assets/37f2cd70-6881-4ca7-9442-7c5b199a8675" />
+
+     4 - activate Signal Plot 
+
 ## Important notes
 
 - Press the play button to activate the audio output and equalizer.
