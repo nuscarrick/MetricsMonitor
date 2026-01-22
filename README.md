@@ -82,12 +82,10 @@ The following variables can be changed in the metricsmonitor.json config file:
     "SpectrumYDynamics": 2,          //  Set the +/- level value for the analyzing curve dynamic (peak indication / default = 2)
 
     /* Meter Gains */
-	
 	"StereoBoost": 2,                //  If the audio signal is too weak, a gain factor for the audio display can be set here (2 - default).
     "AudioMeterBoost": 1,            //  If the audio signal is too weak, a gain factor for the equalizer display can be set here (1 - default).
 
     /* Layout & UI */
-	
     "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
 	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
     "LockVolumeSlider": true,          //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
