@@ -2,10 +2,7 @@
 
 FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1234" height="756" alt="grafik" src="https://github.com/user-attachments/assets/0a15c656-e358-426f-b545-1c2aee76f967" />
-<img width="1241" height="414" alt="grafik" src="https://github.com/user-attachments/assets/2780ac47-85fe-43b3-bffd-fe2805d2da89" />
-<img width="1241" height="408" alt="grafik" src="https://github.com/user-attachments/assets/14e049d4-67ca-41c7-872a-5bfbfe4dfb61" />
-<img width="1241" height="416" alt="grafik" src="https://github.com/user-attachments/assets/d572453e-e63e-4c4b-a726-47180354c480" />
+<img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
 ## v2.3
 - Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
@@ -106,6 +103,15 @@ The following variables can be changed in the metricsmonitor.json config file:
 
 After making changes to the metricsmonitor.json script, a server restart is only necessary for selected settings; a browser reload may also be sufficient!
 
+
+## Module Displays (Values ​​for MODULE_SEQUENCE)
+<img width="1916" height="272" alt="grafik" src="https://github.com/user-attachments/assets/137805bf-eba1-4736-bd12-21936d280400" />
+
+## Canvas Displays (Values ​​for CANVAS_SEQUENCE)
+<img width="1637" height="304" alt="grafik" src="https://github.com/user-attachments/assets/71c88160-344c-4d65-be12-8a8dc74925d1" />
+<img width="1644" height="302" alt="grafik" src="https://github.com/user-attachments/assets/39a9c445-335e-4920-b9b5-9587a6653eb9" />
+<img width="1222" height="219" alt="grafik" src="https://github.com/user-attachments/assets/076dc1db-7101-4fc4-9912-59093ebc95f0" />
+
 ## MPX Equipment
 
 ### ESP32 Receiver
@@ -129,55 +135,6 @@ Option 1 - http://highpoint2000.selfhost.de:6080
 
 Option 3 - http://highpoint2000.selfhost.de:8080 
 
-## Display modes (Values ​​for MODULE_SEQUENCE)
-
-### Input: 48 kHz Mono/Stereo
-
-<img width="1431" height="263" alt="2a" src="https://github.com/user-attachments/assets/76a708f3-c7e4-4f07-8a12-61eaab0f3521" />
-
-    1 – MO/ST without PILOT/MPX/RDS    2 – only spectrum to 48 kHz       0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-  
-### Input: 48 kHz MPX
-
-<img width="1603" height="290" alt="2b" src="https://github.com/user-attachments/assets/7efff0ca-81cc-4cc2-a0a4-d449a04843f0" />
-
-
-    1 – Mono without PILOT/MPX/RDS   2 – spectrum to 48 kHz with PILOT    0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-
-### Input: 96 kHz MPX
-
-<img width="1456" height="260" alt="3a" src="https://github.com/user-attachments/assets/73e84447-d22d-4f30-8724-d65f56567b7e" />
-
-
-       1 – Mono without MPX/RDS     2 – spectrum to 38 kHz with PILOT     0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-
-### Input: 192 kHz MPX
-
-<img width="1448" height="266" alt="4a" src="https://github.com/user-attachments/assets/cb3801c3-ed30-4f76-b8f2-4da2e90436fb" />
-
-     1 – Mono with PILOT/MPX/RDS   2 – spectrum to 56 kHz with PILOT/RDS   0 – MO/ST with Equalizer     3 – MO/ST with Signal strength
-
-### Signal Plot
-
-<img width="255" height="190" alt="Signal" src="https://github.com/user-attachments/assets/b148cbe7-b904-42a8-b9ad-6f3a753703bc" />
-
-     4 - activate Signal Plot 
-
-## Display modes (Values ​​for CANVAS_SEQUENCE)
-
-### MPX Analyzer / Oscilloscope 
-
-<img width="1221" height="361" alt="grafik" src="https://github.com/user-attachments/assets/1dc9364c-67ff-4714-ba87-22060a8db682" />
-
-
-    2 – activate MPX Analyzer/Oscilloscope
-	
-### Signal Plot
-
-<img width="1232" height="192" alt="grafik" src="https://github.com/user-attachments/assets/37f2cd70-6881-4ca7-9442-7c5b199a8675" />
-
-     4 - activate Signal Plot 
-
 ## Important notes
 
 - Press the play button to activate the audio output and equalizer.
@@ -187,10 +144,9 @@ Option 3 - http://highpoint2000.selfhost.de:8080
   0/3 = 48 kHz signal (mono or stereo) is sufficient.
   1 = Signal of at least 96 kHz is required for the pilot tone display; a 192 kHz signal is required for the MPX and RDS displays. For both sampling rates, the receiver must support MPX output (activate via the menu if necessary).
   2 = 48 kHz displays the FM audio spectrum up to 19 kHz, 96 kHz the FM baseband up to 38 kHz, and 192 kHz the MPX spectrum up to 56 kHz. For both sampling rates (96 and 192 kHz), the receiver must support MPX output (activate this via the menu or configuration if necessary).
-
 - The configuration file allows you to switch individual display modules on and off and define the click sequence. The various displays can also be calibrated there.
 - Press the CTRL key to select different zoom options in MPX + Signal analysis modes
-
+- Due to the high data rate (up to 10 Mbit/s) and CPU load, it is recommended to restrict the display of the MPX Spectrum (Analyzer) and the Oscilloscope to the administrator account -> "EnableAnalyzerAdminMode": true
 
 Compatibility with all hardware components and platforms cannot be guaranteed. The receiver's output volume, as well as the technical characteristics of the hardware components, affect the display behavior and must be taken into account!!!
 
