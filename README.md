@@ -91,11 +91,11 @@ The following variables can be changed in the metricsmonitor.json config file:
 
     /* Layout & UI */
 	
-    "MODULE_SEQUENCE": "1,2,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,0,4" - default).
-	"CANVAS_SEQUENCE": "2,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
-    "LockVolumeSlider": true,        //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
-	"EnableSpectrumOnLoad": false,   //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
-    "EnableAnalyzerAdminMode": false,//  Set to true to restricts analyzer/oscilloscope display to administrators (default ist false).
+    "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
+	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
+    "LockVolumeSlider": true,          //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
+	"EnableSpectrumOnLoad": false,     //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
+    "EnableAnalyzerAdminMode": false,  //  Set to true to restricts analyzer/oscilloscope display to administrators (default ist false).
 
     /* Colors & Peaks */
     "MeterColorSafe": "rgb(0, 255, 0)";       // Change the color here for the safe range of the meter displays. The default is "rgb(0, 255, 0)".
@@ -190,7 +190,7 @@ Option 3 - http://highpoint2000.selfhost.de:8080
 
 - The configuration file allows you to switch individual display modules on and off and define the click sequence. The various displays can also be calibrated there.
 - Press the CTRL key to select different zoom options in MPX + Signal analysis modes
-- Use the oscilloscope to adjust the tilt. Activate it by clicking on the "MPX Spectrum" text in the analyzer.
+
 
 Compatibility with all hardware components and platforms cannot be guaranteed. The receiver's output volume, as well as the technical characteristics of the hardware components, affect the display behavior and must be taken into account!!!
 
