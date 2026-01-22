@@ -1,7 +1,6 @@
-/* --- MPX ANALYZER CONTAINER ----------------------------- */
+/* --- MPX SCOPE CONTAINER ----------------------------- */
 
-/* Wrapper around the MPX spectrum canvas */
-#mpxCanvasContainer {
+#mpxScopeContainer {
   position: relative;
   flex: 1;
   margin-top: 4px;
@@ -14,8 +13,7 @@
   width: 101.5%;
 }
 
-/* The MPX spectrum canvas itself */
-#mpxCanvas {
+#mpxScopeCanvas {
   width: 100%;
   height: 100%;
   display: block;

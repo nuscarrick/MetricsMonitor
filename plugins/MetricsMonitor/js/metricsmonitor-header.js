@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-header.js                        (V2.2)   //
+//  metricsmonitor-header.js                        (V2.3)   //
 //                                                           //
-//  by Highpoint               last update: 20.01.2026       //
+//  by Highpoint               last update: 22.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -31,7 +31,7 @@ const SpectrumYOffset = -40;    // Do not touch - this value is automatically up
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -446,6 +446,32 @@ stereoImg.addEventListener('click', () => {
       setIconSrc(img, off);
       iconsBar.appendChild(img);
     });
+
+// --- Check for UI Add-on Pack Multipath Icon ---
+const addonObserver = new MutationObserver(() => {
+
+    const multipath = iconsBar.querySelector('.multipath-container');
+    const isMultipathPresent = multipath !== null;
+
+    // List of elements to shift left
+    const targets = ['rdsIcon', 'taIcon', 'tpIcon', 'stereoIcon', 'ptyLabel'];
+
+    targets.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.style.marginLeft = isMultipathPresent ? '-4px' : '';
+        }
+    });
+
+    // 🔽 MULTIPATH SIZE CONTROL
+    if (multipath) {
+        multipath.style.transform = 'scale(0.85)';                
+    }
+});
+
+
+    // Start observing the icon bar container including subtrees to catch deep inserts
+    addonObserver.observe(iconsBar, { childList: true, subtree: true });
 
     setupTextSocket();
   }

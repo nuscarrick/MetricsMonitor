@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.2)    //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3)    //
 //                                                              //
-//  by Highpoint                     last update: 20.01.2026    //
+//  by Highpoint                     last update: 22.01.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -85,10 +85,10 @@ const defaultConfig = {
   AudioMeterBoost: 1.0,         // Multiplier for 5-Band audiometer
 
   // 7. Layout & UI
-  MODULE_SEQUENCE: "1,2,0,3,4", // Order of UI modules
-  CANVAS_SEQUENCE: "2,4",       // Order of Canvas elements
-  LockVolumeSlider: true,       // Lock the main volume slider in UI
-  EnableSpectrumOnLoad: false,  // Start spectrum automatically
+  MODULE_SEQUENCE: "1,2,5,0,3,4", // Order of UI modules
+  CANVAS_SEQUENCE: "2,5,4",       // Order of Canvas elements
+  LockVolumeSlider: true,         // Lock the main volume slider in UI
+  EnableSpectrumOnLoad: false,    // Start spectrum automatically
   EnableAnalyzerAdminMode: false, // Enable Admin/Debug features in Analyzer
 
   // 8. Colors & Peaks
@@ -421,9 +421,9 @@ function applyConfig(newConfig) {
     METER_RDS_CALIBRATION = Number(configPlugin.MeterRDSCalibration) || 0.0;
     
     // SCALES
-    METER_PILOT_SCALE = Number(configPlugin.MeterPilotScale) || 200.0;
+    METER_PILOT_SCALE = Number(configPlugin.MeterPilotScale) || 400.0;
     METER_MPX_SCALE = Number(configPlugin.MeterMPXScale) || 100.0; 
-    METER_RDS_SCALE = Number(configPlugin.MeterRDSScale) || 650.0;   
+    METER_RDS_SCALE = Number(configPlugin.MeterRDSScale) || 750.0;   
        
     SPECTRUM_Y_OFFSET = Number(configPlugin["Spectrum-Y-Offset"]) || -40;
     SPECTRUM_Y_DYNAMICS = Number(configPlugin["Spectrum-Y-Dynamics"]) || 2.0;
@@ -1369,106 +1369,70 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
       logInfo(`[MPX] Attempt #${retryAttempts + 1} to start MPXCapture...`);
 
-      if (MPX_MODE === "off" && MPX_INPUT_CARD === "") {
-          logInfo("[MPX] Mode is 'off' -> MPX Capture Disabled.");
-          return;
-      } 
-      else {
-          // Determine Input Device
-          if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
-              targetDevice = MPX_INPUT_CARD;
-              logInfo(`[MPX] Using device from plugin config: "${targetDevice}"`);
-          } 
-          else {
-              // If no specific MPXInputCard is set, ALWAYS fallback to main config
-              if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice && mainConfig.audio.audioDevice !== "") {
-                  targetDevice = mainConfig.audio.audioDevice;
-                  logInfo(`[MPX] MPXInputCard empty -> Fallback to main config audioDevice: "${targetDevice}"`);
-              } else {
-                  targetDevice = "Default";
-                  logWarn("[MPX] MPXInputCard empty AND main config empty -> Using 'Default'.");
-              }
-          }
+      // Determine Device
+      if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
+          targetDevice = MPX_INPUT_CARD;
+      } else if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice) {
+          targetDevice = mainConfig.audio.audioDevice;
+      } else {
+          targetDevice = "Default";
       }
 
-      // --- STARTUP ---
+      if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "")) {
+        
+        logInfo(`[MPX] Starting MPXCapture (Hybrid Mode)`);
 
-      if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "") && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
-
-        if (osPlatform !== "win32") {
-            try { fs.chmodSync(MPX_EXE_PATH, 0o755); } catch (e) {}
-        }
-
-        logInfo(`[MPX] Starting MPXCapture`);
-
-        /* =====================================================
-           WINDOWS: MPXCapture opens Audio itself
-           ===================================================== */
         if (osPlatform === "win32") {
 
-            logInfo(
-                `[MPX] Direct audio mode (Windows) | Rate=${SAMPLE_RATE}, Dev="${targetDevice}", FFT=${FFT_SIZE}`
-            );
-
+            
             const absConfigPath = path.resolve(configFilePath);
-            const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+            const safeDevice = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
-            logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}" (UDP Port: ${UDP_CONTROL_PORT})`);
+            logInfo(`[MPX] Spawning Native C Binary (WASAPI Mode) | Dev="${safeDevice}"`);
 
             rec = spawn(
                 MPX_EXE_PATH,
                 [
                     String(SAMPLE_RATE),
-                    deviceArg,
+                    safeDevice,      // Wird an InitWASAPI übergeben
                     String(FFT_SIZE),
                     absConfigPath,
-                    String(UDP_CONTROL_PORT) // Arg 4: UDP Port
+                    String(UDP_CONTROL_PORT)
                 ],
                 {
-
-                    cwd: path.resolve(__dirname, "../../"), 
-                    env: {
-                        ...process.env,
-                        PYTHONUNBUFFERED: "1"
-                    }
+                    cwd: path.resolve(__dirname, "../../"),
+                    env: process.env
                 }
             );
 
         /* =====================================================
-           LINUX: arecord -> stdin -> MPXCapture
+           LINUX: Pipe via Arecord -> Stdin
            ===================================================== */
         } else {
+			
             const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
-            const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+            const safeDevice = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
-            logInfo(
-            `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}" (UDP Port: ${UDP_CONTROL_PORT})`
-            );
-
-            // Note on Linux: We are piping audio to STDIN.
-            // We pass the UDP port as the last argument so C# can listen on it.
-            
+            logInfo(`[MPX] Spawning Linux Binary (Pipe Mode) | Dev="${safeDevice}"`);           
+           
             rec = spawn("bash", ["-c", `
-    arecord -F 25000 -D "${deviceArg}" \
-    -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
-    -t raw -q \
-    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
-    `], {
-            stdio: ["ignore", "pipe", "pipe"]
+                arecord -F 25000 -D "${safeDevice}" \
+                -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
+                -t raw -q \
+                | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
+            `], {
+                stdio: ["ignore", "pipe", "pipe"]
             });
         }
 
         /* =====================================================
-           STDERR -> Log
+           STDERR & STDOUT Handling
            ===================================================== */
         rec.stderr.on("data", (d) => {
             const msg = d.toString().trim();
             if (msg.length) logInfo("[MPXCapture]", msg);
         });
 
-        /* =====================================================
-           JSON Reader (stdout)
-           ===================================================== */
         setupJsonReader(rec);
 
         rec.on("close", (code) => {

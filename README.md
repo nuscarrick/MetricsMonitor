@@ -7,15 +7,11 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1241" height="408" alt="grafik" src="https://github.com/user-attachments/assets/14e049d4-67ca-41c7-872a-5bfbfe4dfb61" />
 <img width="1241" height="416" alt="grafik" src="https://github.com/user-attachments/assets/d572453e-e63e-4c4b-a726-47180354c480" />
 
-## v2.2
-- Improved Pilot, MPX, and RDS calculations
-- Enabled display of other signal patterns in the scope display
-- Refined tilt correction
-- Scaling adjustment
-- Expanded horizontal zoom in scope mode
-- Revised cursor alignment in analyzer mode
-- CPU/Network Optimization: Spectrum/Scope calculation is gated (only active when accessed via a browser)
-- New variable EnableAnalyzerAdminMode restricts analyzer/oscilloscope display to administrators
+## v2.3
+- Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
+- Maximum and minimum peak markers in the oscilloscope graph (line and area)
+- Added detection and insertion of the multipath icon (element from the UI add-on plugin) to the header bar
+- Fixed a false start issue with the audio display in the signal meter
 
 ## Important note for this version: 
 
@@ -206,6 +202,16 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+## v2.2
+- Improved Pilot, MPX, and RDS calculations
+- Enabled display of other signal patterns in the scope display
+- Refined tilt correction
+- Scaling adjustment
+- Expanded horizontal zoom in scope mode
+- Revised cursor alignment in analyzer mode
+- CPU/Network Optimization: Spectrum/Scope calculation is gated (only active when accessed via a browser)
+- New variable EnableAnalyzerAdminMode restricts analyzer/oscilloscope display to administrators
 
 ## v2.1
 

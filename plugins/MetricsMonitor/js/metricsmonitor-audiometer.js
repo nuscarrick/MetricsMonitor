@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.2)   //
+//  metricsmonitor-audiometer.js                    (V2.3)   //
 //                                                           //
-//  by Highpoint               last update: 20.01.2026       //
+//  by Highpoint               last update: 22.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -31,7 +31,7 @@ const SpectrumYOffset = -40;    // Do not touch - this value is automatically up
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,3,1,2,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -484,6 +484,7 @@ function hideEqHint() {
 // Audio Setup (Web Audio API)
 // -------------------------------------------------------
 function setupAudioEQ() {
+  // Check stream presence more robustly
   if (
     typeof Stream === "undefined" ||
     !Stream ||
@@ -491,7 +492,9 @@ function setupAudioEQ() {
     !Stream.Fallback.Player ||
     !Stream.Fallback.Player.Amplification
   ) {
-    setTimeout(setupAudioEQ, 2000);
+    // Keep trying - user might not have clicked play yet
+    // Do not recursively call via timeout immediately here, just return.
+    // The setInterval in initAudioMeter will call us again.
     return;
   }
   
@@ -499,14 +502,14 @@ function setupAudioEQ() {
   const sourceNode = player.Amplification;
 
   if (!sourceNode || !sourceNode.context) {
-    setTimeout(setupAudioEQ, 2000);
     return;
   }
 
   try {
     const ctx = sourceNode.context;
 
-    // Reset if AudioContext changed
+    // Reset if AudioContext changed OR if we haven't initialized yet
+    // Important: Do not reset if we are just re-verifying the same context
     if (eqAudioContext !== ctx) {
       eqAudioContext   = ctx;
       eqAnalyser       = null;
@@ -526,9 +529,14 @@ function setupAudioEQ() {
       eqDataArray = new Uint8Array(eqAnalyser.frequencyBinCount);
     }
 
-    eqSourceNode = sourceNode;
-    
-    try { eqSourceNode.connect(eqAnalyser); } catch(e){}
+    // Connect source only if changed or disconnected
+    if (eqSourceNode !== sourceNode) {
+      eqSourceNode = sourceNode;
+      try { eqSourceNode.connect(eqAnalyser); } catch(e){
+        // Only log if it's not the "already connected" error
+        if (e.name !== 'InvalidAccessError') console.warn('AudioMeter connect error:', e);
+      }
+    }
 
     if (!stereoSplitter) {
       stereoSplitter  = eqAudioContext.createChannelSplitter(2);
@@ -541,9 +549,12 @@ function setupAudioEQ() {
       stereoDataL = new Uint8Array(stereoAnalyserL.frequencyBinCount);
       stereoDataR = new Uint8Array(stereoAnalyserR.frequencyBinCount);
 
-      try { eqSourceNode.connect(stereoSplitter); } catch(e){}
-      stereoSplitter.connect(stereoAnalyserL, 0);
-      stereoSplitter.connect(stereoAnalyserR, 1);
+      try { eqSourceNode.connect(stereoSplitter); } catch(e){
+        if (e.name !== 'InvalidAccessError') console.warn('AudioMeter splitter connect error:', e);
+      }
+      // These internal connections usually persist, but safe to retry
+      try { stereoSplitter.connect(stereoAnalyserL, 0); } catch(e){}
+      try { stereoSplitter.connect(stereoAnalyserR, 1); } catch(e){}
     }
 
     if (!eqAnimationId) {
@@ -560,6 +571,12 @@ function startEqAnimation() {
   if (eqAnimationId) cancelAnimationFrame(eqAnimationId);
 
   const loop = () => {
+    // If context is suspended or closed (e.g. stop clicked), stop animating but keep loop checking lightly
+    if (eqAudioContext && eqAudioContext.state === 'suspended') {
+        eqAnimationId = requestAnimationFrame(loop);
+        return;
+    }
+
     if (!eqAnalyser || !eqDataArray) {
       eqAnimationId = requestAnimationFrame(loop);
       return;
@@ -632,6 +649,12 @@ function initAudioMeter(containerOrId = "level-meter-container") {
       : containerOrId;
 
   if (!container) return;
+
+  // Cleanup old interval if exists
+  if (eqSetupIntervalId) {
+      clearInterval(eqSetupIntervalId);
+      eqSetupIntervalId = null;
+  }
 
   if (window.MetricsMonitor && typeof window.MetricsMonitor.getSignalUnit === "function") {
     const u = window.MetricsMonitor.getSignalUnit();
@@ -708,10 +731,12 @@ function initAudioMeter(containerOrId = "level-meter-container") {
     updateMeter(`eq${i}-meter`, 0);
   }
 
+  // Attempt initial setup immediately
   setupAudioEQ();
-  if (!eqSetupIntervalId) {
-    eqSetupIntervalId = setInterval(setupAudioEQ, 3000);
-  }
+  
+  // Start robust interval to check for audio start
+  // This ensures if SignalMeter loaded first and then we switch here, we catch the audio context
+  eqSetupIntervalId = setInterval(setupAudioEQ, 1000);
 
   if (!hfUnitListenerAttached && window.MetricsMonitor && typeof window.MetricsMonitor.onSignalUnitChange === "function") {
     hfUnitListenerAttached = true;

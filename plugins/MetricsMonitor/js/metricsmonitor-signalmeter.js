@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js            (V2.2 Hotfix)   //
+//  metricsmonitor-signalmeter.js                  (V2.3)    //
 //                                                           //
-//  by Highpoint               last update: 21.01.2026       //
+//  by Highpoint               last update: 22.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
