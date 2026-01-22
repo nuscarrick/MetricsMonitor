@@ -43,7 +43,7 @@ const PeakMode = "dynamic";    // Do not touch - this value is automatically upd
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.2";
+  const plugin_version = "2.3";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
