@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.3)   //
+//  metricsmonitor-meters.js                        (V2.3a)  //
 //                                                           //
-//  by Highpoint               last update: 22.01.2026       //
+//  by Highpoint               last update: 24.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -12,34 +12,35 @@
 ///////////////////////////////////////////////////////////////
 
 (() => {
-const sampleRate = 192000;    // Auto-updated via config file
-const MPXmode = "auto";       // Auto-updated via config file
-const MPXStereoDecoder = "off"; // Auto-updated via config file
-const MPXInputCard = "FM Server Mikrofon (2- HD USB Audio Device)"; // Auto-updated via config file
-const MPXTiltCalibration = 0; // Auto-updated via config file
-const MeterInputCalibration = 0; // Auto-updated via config file
-const MeterPilotCalibration = -3.8; // Auto-updated via config file
-const MeterMPXCalibration = -15; // Auto-updated via config file
-const MeterRDSCalibration = -0.3; // Auto-updated via config file
-const MeterPilotScale = 280;   // Auto-updated via config file
-const MeterRDSScale = 400;     // Auto-updated via config file
-const fftSize = 2048;          // Auto-updated via config file
-const SpectrumAttackLevel = 3; // Auto-updated via config file
-const SpectrumDecayLevel = 15; // Auto-updated via config file
-const SpectrumSendInterval = 30; // Auto-updated via config file
-const SpectrumYOffset = -40;     // Auto-updated via config file
-const SpectrumYDynamics = 1.9;   // Auto-updated via config file
-const StereoBoost = 3;           // Auto-updated via config file
-const AudioMeterBoost = 1;       // Auto-updated via config file
-const MODULE_SEQUENCE = [0,3,1,2,4]; // Auto-updated via config file
-const CANVAS_SEQUENCE = [2,4];       // Auto-updated via config file
-const LockVolumeSlider = true;       // Auto-updated via config file
-const EnableSpectrumOnLoad = false;  // Auto-updated via config file
-const MeterColorSafe = "rgb(0, 255, 0)";    // Auto-updated via config file
-const MeterColorWarning = "rgb(255, 255,0)"; // Auto-updated via config file
-const MeterColorDanger = "rgb(255, 0, 0)";   // Auto-updated via config file
-const PeakMode = "dynamic";                  // Auto-updated via config file
-const PeakColorFixed = "rgb(251, 174, 38)";  // Auto-updated via config file
+const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
+const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
+const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotCalibration = -2;    // Do not touch - this value is automatically updated via the config file
+const MeterMPXCalibration = -15;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 100;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 125;    // Do not touch - this value is automatically updated via the config file
+const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
+const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
+const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
+const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
+const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
+const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
+const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
+const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
+const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
+const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
+const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
+const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;           // Auto-updated via config file
 
     // Debug flags
@@ -109,7 +110,7 @@ const MeterTiltCalibration = -900;           // Auto-updated via config file
         if (u) hfUnit = u.toLowerCase();
     }
 
-    // Stereo audio context variables
+    // Stereo audio context variables (Persisted globally if needed, scoped here)
     let stereoAudioContext = null;
     let stereoSourceNode = null;
     let stereoSplitter = null;
@@ -625,23 +626,31 @@ const MeterTiltCalibration = -900;           // Auto-updated via config file
     }
 
     // ==========================================================
-    // Audio setup & animation
+    // Audio setup & animation (ROBUST VERSION)
     // ==========================================================
     function setupAudioMeters() {
-        if (!window.Stream || !Stream.Fallback || !Stream.Fallback.Player || !Stream.Fallback.Player.Amplification) {
+        // --- This logic is copied 1:1 from metricsmonitor-audiometer.js / signalmeter.js ---
+        if (
+            typeof Stream === "undefined" ||
+            !Stream ||
+            !Stream.Fallback ||
+            !Stream.Fallback.Player ||
+            !Stream.Fallback.Player.Amplification
+        ) {
+            // Not ready yet - loop will check again
             return;
         }
 
         const player = Stream.Fallback.Player;
         const sourceNode = player.Amplification;
 
-        if (!sourceNode || !sourceNode.context) {
-            return;
-        }
+        if (!sourceNode || !sourceNode.context) return;
 
         try {
             const ctx = sourceNode.context;
 
+            // 1. Context Changed? -> Reset Everything
+            // This happens if browser tab suspended or new page load
             if (stereoAudioContext !== ctx) {
                 stereoAudioContext = ctx;
                 stereoSourceNode = null;
@@ -652,32 +661,49 @@ const MeterTiltCalibration = -900;           // Auto-updated via config file
                 stereoDataR = null;
             }
 
-            if (stereoSplitter && stereoAnalyserL && stereoAnalyserR) {
-                if (!stereoAnimationId) startStereoAnimation();
-                return;
+            // 2. Ensure Analysers exist
+            if (!stereoAnalyserL || !stereoDataL) {
+                stereoAnalyserL = stereoAudioContext.createAnalyser();
+                stereoAnalyserR = stereoAudioContext.createAnalyser();
+
+                stereoAnalyserL.fftSize = 2048;
+                stereoAnalyserR.fftSize = 2048;
+
+                stereoDataL = new Uint8Array(stereoAnalyserL.frequencyBinCount);
+                stereoDataR = new Uint8Array(stereoAnalyserR.frequencyBinCount);
             }
 
-            stereoSourceNode = sourceNode;
+            // 3. Source Connection Logic
+            // Only reconnect if the source node object itself has changed (e.g. stop/start clicked)
+            if (stereoSourceNode !== sourceNode) {
+                stereoSourceNode = sourceNode;
 
-            stereoSplitter = stereoAudioContext.createChannelSplitter(2);
-            stereoAnalyserL = stereoAudioContext.createAnalyser();
-            stereoAnalyserR = stereoAudioContext.createAnalyser();
+                // Create Splitter if missing
+                if (!stereoSplitter) {
+                    stereoSplitter = stereoAudioContext.createChannelSplitter(2);
+                    // Internal wirings
+                    try { stereoSplitter.connect(stereoAnalyserL, 0); } catch(e){}
+                    try { stereoSplitter.connect(stereoAnalyserR, 1); } catch(e){}
+                }
 
-            stereoAnalyserL.fftSize = 2048;
-            stereoAnalyserR.fftSize = 2048;
+                // Connect Source -> Splitter
+                try {
+                    stereoSourceNode.connect(stereoSplitter);
+                } catch(e) {
+                    // Ignore "InvalidAccessError" if already connected
+                    if (e.name !== 'InvalidAccessError') {
+                        console.warn("[MetricsMeters] Connect Error:", e);
+                    }
+                }
+            }
 
-            stereoDataL = new Uint8Array(stereoAnalyserL.frequencyBinCount);
-            stereoDataR = new Uint8Array(stereoAnalyserR.frequencyBinCount);
+            // 4. Ensure Loop is running
+            if (!stereoAnimationId) {
+                startStereoAnimation();
+            }
 
-            try {
-                stereoSourceNode.connect(stereoSplitter);
-                stereoSplitter.connect(stereoAnalyserL, 0);
-                stereoSplitter.connect(stereoAnalyserR, 1);
-            } catch (e) {}
-
-            if (!stereoAnimationId) startStereoAnimation();
         } catch (e) {
-            console.error("[MetricsMeters] Error", e);
+            console.error("[MetricsMeters] Audio Setup Fatal Error", e);
         }
     }
 
@@ -685,6 +711,12 @@ const MeterTiltCalibration = -900;           // Auto-updated via config file
         if (stereoAnimationId) cancelAnimationFrame(stereoAnimationId);
 
         const loop = () => {
+            // If context suspended, keep checking but don't draw
+            if (stereoAudioContext && stereoAudioContext.state === 'suspended') {
+                stereoAnimationId = requestAnimationFrame(loop);
+                return;
+            }
+
             if (!stereoAnalyserL || !stereoAnalyserR || !stereoDataL || !stereoDataR) {
                 stereoAnimationId = requestAnimationFrame(loop);
                 return;
@@ -849,11 +881,15 @@ const MeterTiltCalibration = -900;           // Auto-updated via config file
         updateMeter("rds-meter", levels.rds || 0);
 
         setupMetricsWebSocket();
+
+        // Immediate first try
         setupAudioMeters();
 
-        if (!stereoSetupIntervalId) {
-            stereoSetupIntervalId = setInterval(setupAudioMeters, 3000);
-        }
+        // Clear existing interval if present
+        if (stereoSetupIntervalId) clearInterval(stereoSetupIntervalId);
+        
+        // Start robust checking loop (1000ms like in Audiometer/SignalMeter)
+        stereoSetupIntervalId = setInterval(setupAudioMeters, 1000);
 
         if (!hfUnitListenerAttached &&
             window.MetricsMonitor &&

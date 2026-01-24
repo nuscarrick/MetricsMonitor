@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.3)   //
+//  metricsmonitor-analyzer.js                      (V2.3a)  //
 //                                                           //
-//  by Highpoint               last update: 22.01.2026       //
+//  by Highpoint               last update: 24.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -18,21 +18,21 @@ const MPXStereoDecoder = "off";    // Do not touch - this value is automatically
 const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotCalibration = -9.6;    // Do not touch - this value is automatically updated via the config file
-const MeterMPXCalibration = -22.7;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSCalibration = -3;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 400;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 750;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotCalibration = -2;    // Do not touch - this value is automatically updated via the config file
+const MeterMPXCalibration = -15;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 100;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 125;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 0.9;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [3,0,1,2,4];    // Do not touch - this value is automatically updated via the config file
-const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
 const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
@@ -41,7 +41,7 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
 // Default mode is Spectrum only (oscilloscope moved to metricsmonitor-scope.js).
 
@@ -662,77 +662,101 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     ctx.stroke();
   }
 
-  function drawHoverCursor() {
-    if (hoverX === null || isDragging) return;
-    if (hoverX < OFFSET_X) return;
+function drawHoverCursor() {
+  if (hoverX === null || isDragging) return;
+  if (hoverX < OFFSET_X) return;
 
-    const logicalWidth = canvas.clientWidth;
-    const graphWidth = logicalWidth - OFFSET_X;
+  const logicalWidth = canvas.clientWidth;
+  
+  // Define width used for calculation. 
+  // Trace uses OFFSET_X, Grid uses GRID_X_OFFSET. 
+  // We use OFFSET_X to align with the trace start.
+  const graphWidth = logicalWidth - OFFSET_X;
 
-    if (!mpxSpectrum.length) return;
-    const totalBins = mpxSpectrum.length;
+  if (!mpxSpectrum.length) return;
+  const totalBins = mpxSpectrum.length;
 
-    let freqHz = 0;
-    let bin = 0;
+  let freqHz = 0;
+  let bin = 0;
 
-    if (zoomLevel > 1.0) {
-      const pct = (hoverX - OFFSET_X) / graphWidth;
-      freqHz = visibleStart + pct * (visibleEnd - visibleStart);
+  if (zoomLevel > 1.0) {
+    // ------------------------------------------
+    // ZOOM MODE (> 1.0)
+    // ------------------------------------------
+    const pct = (hoverX - OFFSET_X) / graphWidth;
+    freqHz = visibleStart + pct * (visibleEnd - visibleStart);
 
-      if (freqHz < 0 || freqHz > MPX_FMAX_HZ) return;
+    if (freqHz < 0 || freqHz > MPX_FMAX_HZ) return;
+    bin = freqToBin(freqHz, totalBins);
+    
+  } else {
+    // ------------------------------------------
+    // STANDARD MODE (Zoom 1.0)
+    // ------------------------------------------
+    // 1. Calculate Frequency directly from screen position (Visual Match)
+    // This ensures 38k on screen equals 38k in the tooltip.
+    // The screen covers 0 Hz to (MPX_FMAX_HZ * LABEL_CURVE_X_SCALE) linearly.
+    
+    // Fraction of the screen width (0.0 to 1.0)
+    const screenFraction = (hoverX - OFFSET_X) / graphWidth;
+    
+    // Map screen fraction to the visual frequency range
+    const maxVisualFreq = MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
+    freqHz = screenFraction * maxVisualFreq;
 
-      bin = freqToBin(freqHz, totalBins);
-    } else {
-      const usableWidthScale = graphWidth * CURVE_X_SCALE;
-      const effectiveWidth = usableWidthScale * CURVE_X_STRETCH * zoomLevel;
-
-      const frac = (hoverX - OFFSET_X) / effectiveWidth;
-      if (frac < 0 || frac > 1) return;
-
-      bin = Math.round(frac * (totalBins - 1));
-      bin = Math.max(0, Math.min(totalBins - 1, bin));
-
-      freqHz = frac * MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
-    }
-
-    if (bin < 0 || bin >= totalBins) return;
-
-    let rawVal = mpxSpectrum[bin];
-    let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
-    val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
-
-    if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
-    if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
-
-    const range = getDisplayRange();
-    const logicalHeight = canvas.clientHeight;
-    const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
-
-    const normY = (val - range.min) / (range.max - range.min);
-    const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
-
-    ctx.beginPath();
-    ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-
-    const freqLabel =
-      freqHz >= 1000 ? (freqHz / 1000).toFixed(1) + " kHz" : Math.round(freqHz) + " Hz";
-    const dbLabel = val.toFixed(1) + " dB";
-
-    let labelX = hoverX;
-    if (labelX < 60) labelX = 60;
-    if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
-
-    ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
+    // 2. Calculate the corresponding Bin (Data Match)
+    // The trace is drawn with X = left + (bin/total) * width * STRETCH.
+    // So: bin/total = (X - left) / (width * STRETCH) = screenFraction / STRETCH.
+    
+    const binFraction = screenFraction / (CURVE_X_STRETCH * CURVE_X_SCALE);
+    bin = Math.round(binFraction * (totalBins - 1));
+    
+    // Clamp bin to valid range
+    bin = Math.max(0, Math.min(totalBins - 1, bin));
   }
+
+  if (bin < 0 || bin >= totalBins) return;
+
+  // Get dB value from spectrum data
+  let rawVal = mpxSpectrum[bin];
+  let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
+  val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
+
+  if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
+  if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
+  const range = getDisplayRange();
+  const logicalHeight = canvas.clientHeight;
+  const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
+
+  const normY = (val - range.min) / (range.max - range.min);
+  const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
+
+  // Draw cursor circle
+  ctx.beginPath();
+  ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.stroke();
+
+  // Draw frequency and dB label
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "12px Arial";
+  ctx.textAlign = "center";
+
+  const freqLabel =
+    freqHz >= 1000 ? (freqHz / 1000).toFixed(1) + " kHz" : Math.round(freqHz) + " Hz";
+  const dbLabel = val.toFixed(1) + " dB";
+
+  // Ensure label stays within canvas bounds
+  let labelX = hoverX;
+  if (labelX < 60) labelX = 60;
+  if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
+
+  ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
+}
 
   function drawMpxSpectrum() {
     if (!ctx || !canvas) return;

@@ -4,11 +4,10 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.3
-- Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
-- Maximum and minimum peak markers in the oscilloscope graph (line and area)
-- Added detection and insertion of the multipath icon (element from the UI add-on plugin) to the header bar
-- Fixed a false start issue with the audio display in the signal meter
+## v2.3a
+- Access rights to MPXCapture under Linux are granted automatically
+- VU meter display now also starts with "MODULE_SEQUENCE": "1",
+- Frequency display at cursor line in spectrum corrected
 
 ## Important note for this version: 
 
@@ -156,6 +155,12 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+## v2.3
+- Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
+- Maximum and minimum peak markers in the oscilloscope graph (line and area)
+- Added detection and insertion of the multipath icon (element from the UI add-on plugin) to the header bar
+- Fixed a false start issue with the audio display in the signal meter
 
 ## v2.2
 - Improved Pilot, MPX, and RDS calculations

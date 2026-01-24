@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3)    //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3a)   //
 //                                                              //
-//  by Highpoint                     last update: 22.01.2026    //
+//  by Highpoint                     last update: 24.01.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -1202,6 +1202,26 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   } else {
     MPX_EXE_PATH = path.join(__dirname, "bin", runtimeFolder, binaryName);
     MPX_EXE_PATH = MPX_EXE_PATH.replace(/^['\"]+|['\"]+$/g, "");
+
+    // -----------------------------------------------------------------------
+    // NEW: Check and fix execution permissions for Linux/Mac
+    // -----------------------------------------------------------------------
+    if (osPlatform !== "win32" && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
+        try {
+            // Check if file is executable (X_OK)
+            fs.accessSync(MPX_EXE_PATH, fs.constants.X_OK);
+        } catch (e) {
+            logInfo(`[MPX] Binary lacks execution permission. Setting 755 for: ${path.basename(MPX_EXE_PATH)}`);
+            try {
+                // Apply rwxr-xr-x (755)
+                fs.chmodSync(MPX_EXE_PATH, 0o755);
+                logInfo("[MPX] Permissions updated successfully.");
+            } catch (chmodErr) {
+                logError(`[MPX] Failed to set permissions for binary: ${chmodErr.message}`);
+            }
+        }
+    }
+
     logInfo(
       `[MPX] Using MPXCapture binary for ${osPlatform}/${osArch} ? ${runtimeFolder}/${binaryName}`
     );
@@ -1209,7 +1229,10 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
   const MAX_WS_BACKLOG_BYTES = 256 * 1024;
   
+  // -----------------------------------------------------------------------
   // UDP Setup for Communication with C# binary
+  // (Required for UDP_CONTROL_PORT reference in startMPXCapture)
+  // -----------------------------------------------------------------------
   const udpClient = dgram.createSocket("udp4");
   const UDP_CONTROL_PORT = 60001; // Port on which C# process will listen
 
