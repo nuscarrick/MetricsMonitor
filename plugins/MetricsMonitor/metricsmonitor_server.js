@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3a)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3b)   //
 //                                                              //
-//  by Highpoint                     last update: 24.01.2026    //
+//  by Highpoint                     last update: 27.01.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -1227,7 +1227,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     );
   }
 
-  const MAX_WS_BACKLOG_BYTES = 256 * 1024;
+  const MAX_WS_BACKLOG_BYTES = 512 * 1024;
   
   // -----------------------------------------------------------------------
   // UDP Setup for Communication with C# binary
@@ -1250,9 +1250,13 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   let backpressureHits = 0;
   const MAX_BACKPRESSURE_HITS = 200;
   
-  // Heartbeat tracking for Spectrum Calculation
+  // Heartbeat tracking for Spectrum & Scope Calculation
   let lastSpectrumHeartbeat = 0;
   let spectrumIsActive = false;
+  let lastScopeHeartbeat = 0;
+  let scopeIsActive = false;
+  let lastScopeState = false;
+  
 
   function connectDataPluginsWs() {
     const url = `ws://127.0.0.1:${SERVER_PORT}/data_plugins`;
@@ -1291,12 +1295,19 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
       logError("[MPX] /data_plugins WebSocket error:", err);
     });
 
-    // Listen for client messages (Heartbeats)
+    // Listen for client messages (Heartbeats from Spectrum AND Scope)
     dataPluginsWs.on("message", (raw) => {
         try {
             const msg = JSON.parse(raw);
-            if (msg.type === "MPX" && msg.cmd === "spectrum_heartbeat") {
-                lastSpectrumHeartbeat = Date.now();
+            if (msg.type === "MPX") {
+                // Spectrum heartbeat
+                if (msg.cmd === "spectrum_heartbeat") {
+                    lastSpectrumHeartbeat = Date.now();
+                }
+                // NEW: Scope heartbeat
+                if (msg.cmd === "scope_heartbeat") {
+                    lastScopeHeartbeat = Date.now();
+                }
             }
         } catch(e) {}
     });
@@ -1438,14 +1449,15 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
             logInfo(`[MPX] Spawning Linux Binary (Pipe Mode) | Dev="${safeDevice}"`);           
            
-            rec = spawn("bash", ["-c", `
-                arecord -F 25000 -D "${safeDevice}" \
-                -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
-                -t raw -q \
-                | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
-            `], {
-                stdio: ["ignore", "pipe", "pipe"]
-            });
+rec = spawn("bash", ["-c", `
+    ALSA_CARD="sndrpihifiberry" arecord -F 25000 -D "${safeDevice}" \
+    -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
+    -t raw -q \
+    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
+`], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ALSA_CARD: "sndrpihifiberry" }
+});
         }
 
         /* =====================================================
@@ -1471,28 +1483,27 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   // ====================================================================================
   //  Spectrum Activity Watchdog (Optimized CPU) - UDP VERSION
   // ====================================================================================
-  setInterval(() => {
+setInterval(() => {
      const now = Date.now();
-     // If heartbeat received within last 4 seconds, keep active
-     const isActive = (now - lastSpectrumHeartbeat < 4000);
+     
+     // Spectrum: Active if heartbeat received within last 4 seconds
+     const isSpectrumActive = (now - lastSpectrumHeartbeat < 4000);
+     
+     // Scope: Active if heartbeat received within last 4 seconds
+     const isScopeActive = (now - lastScopeHeartbeat < 4000);
 
-     if (isActive !== spectrumIsActive) {
-         spectrumIsActive = isActive;
-         
-         // Send command to C/C# process via UDP
-         const command = spectrumIsActive ? "SPECTRUM=1" : "SPECTRUM=0";
-         const message = Buffer.from(command);
+     // Sync variables
+     spectrumIsActive = isSpectrumActive;
+     scopeIsActive = isScopeActive;
 
-         udpClient.send(message, UDP_CONTROL_PORT, '127.0.0.1', (err) => {
-             if (err) {
-                 logWarn("[MPX] Failed to send UDP command to C/C# process: " + err);
-             } else {
-                 if(spectrumIsActive) logInfo("[MPX] Spectrum Analyzer: Active (Heartbeat detected)");
-                 else logInfo("[MPX] Spectrum Analyzer: Idle (No clients)");
-             }
-         });
-     }
-  }, 1000);
+     // Force send commands every second to ensure C process is in sync (e.g. after restart)
+     const specCmd = spectrumIsActive ? "SPECTRUM=1" : "SPECTRUM=0";
+     udpClient.send(Buffer.from(specCmd), UDP_CONTROL_PORT, '127.0.0.1', () => {});
+
+     const scopeCmd = isScopeActive ? "SCOPE=1" : "SCOPE=0";
+     udpClient.send(Buffer.from(scopeCmd), UDP_CONTROL_PORT, '127.0.0.1', () => {});
+     
+}, 1000);
 
 // ====================================================================================
 //  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling)
@@ -1601,15 +1612,8 @@ setInterval(() => {
     // -----------------------------------------------------------------------
     // Send both Spectrum (value) and Scope (scope) arrays
     // Note: These might be empty arrays if spectrumIsActive is false
-    let finalSpectrum = [];
-    if (latestMpxFrame && latestMpxFrame.length > 0) {
-        finalSpectrum = latestMpxFrame;
-    }
-    
-    let finalScope = [];
-    if (latestScopeFrame && latestScopeFrame.length > 0) {
-        finalScope = latestScopeFrame;
-    }
+    let finalSpectrum = (latestMpxFrame && latestMpxFrame.length > 0) ? latestMpxFrame : [];
+    let finalScope = (latestScopeFrame && latestScopeFrame.length > 0) ? latestScopeFrame : [];
 
     const payload = JSON.stringify({
       type: "MPX", 

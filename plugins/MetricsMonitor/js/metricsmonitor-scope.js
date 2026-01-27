@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.3a)  //
+//  metricsmonitor-scope.js                         (V2.3b)  //
 //                                                           //
-//  by Highpoint               last update: 24.01.2026       //
+//  by Highpoint               last update: 27.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -12,39 +12,39 @@
 ///////////////////////////////////////////////////////////////
 
 (() => {
-const sampleRate = 192000;    
-const MPXmode = "auto";    
-const MPXStereoDecoder = "off";    
-const MPXInputCard = "";    
-const MPXTiltCalibration = 0;    
-const MeterInputCalibration = 0;    
-const MeterPilotCalibration = -9.6;    
-const MeterMPXCalibration = -22.7;    
-const MeterRDSCalibration = -3;    
-const MeterPilotScale = 400;    
-const MeterRDSScale = 750;    
-const fftSize = 4096;    
-const SpectrumAttackLevel = 3;    
-const SpectrumDecayLevel = 15;    
-const SpectrumSendInterval = 30;    
-const SpectrumYOffset = -40;    
-const SpectrumYDynamics = 2;    
-const StereoBoost = 0.9;    
-const AudioMeterBoost = 1;    
-const MODULE_SEQUENCE = [3,0,1,2,4];    
-const CANVAS_SEQUENCE = [2,4];    
-const LockVolumeSlider = true;    
-const EnableSpectrumOnLoad = true;    
-const EnableAnalyzerAdminMode = false;    
-const MeterColorSafe = "rgb(0, 255, 0)";    
-const MeterColorWarning = "rgb(255, 255,0)";    
-const MeterColorDanger = "rgb(255, 0, 0)";    
-const PeakMode = "dynamic";    
-const PeakColorFixed = "rgb(251, 174, 38)";    
-const MeterTiltCalibration = -900;    
+const sampleRate = 192000;
+const MPXmode = "auto";
+const MPXStereoDecoder = "off";
+const MPXInputCard = "";
+const MPXTiltCalibration = 0;
+const MeterInputCalibration = 0;
+const MeterPilotCalibration = -9.6;
+const MeterMPXCalibration = -22.7;
+const MeterRDSCalibration = -3;
+const MeterPilotScale = 400;
+const MeterRDSScale = 750;
+const fftSize = 4096;
+const SpectrumAttackLevel = 3;
+const SpectrumDecayLevel = 15;
+const SpectrumSendInterval = 30;
+const SpectrumYOffset = -40;
+const SpectrumYDynamics = 2;
+const StereoBoost = 0.9;
+const AudioMeterBoost = 1;
+const MODULE_SEQUENCE = [3,0,1,2,4];
+const CANVAS_SEQUENCE = [2,4];
+const LockVolumeSlider = true;
+const EnableSpectrumOnLoad = true;
+const EnableAnalyzerAdminMode = false;
+const MeterColorSafe = "rgb(0, 255, 0)";
+const MeterColorWarning = "rgb(255, 255,0)";
+const MeterColorDanger = "rgb(255, 0, 0)";
+const PeakMode = "dynamic";
+const PeakColorFixed = "rgb(251, 174, 38)";
+const MeterTiltCalibration = -900;
 
 /////////////////////////////////////////////////////////////////
-// Shared WebSocket Hub 
+// Shared WebSocket Hub (one connection for N renderers)
 /////////////////////////////////////////////////////////////////
 const currentURL = window.location;
 const PORT = currentURL.port || (currentURL.protocol === "https:" ? "443" : "80");
@@ -71,7 +71,9 @@ const MpxHub = (() => {
       };
       ws.onclose = () => scheduleReconnect();
       ws.onerror = () => scheduleReconnect();
-    } catch { scheduleReconnect(); }
+    } catch {
+      scheduleReconnect();
+    }
   }
 
   function scheduleReconnect() {
@@ -137,18 +139,30 @@ const KeyboardHub = (() => {
 let __mmScopeSeq = 0;
 const __instances = new Map();
 
+/////////////////////////////////////////////////////////////////
+// GLOBAL Heartbeat Manager (Scope)  ✅ NEW / FIXED
+// - Runs only if at least one Scope instance exists.
+// - Sends { type:"MPX", cmd:"scope_heartbeat" } every 2 seconds.
+// - This is analogous to metricsmonitor-analyzer.js (spectrum heartbeat),
+//   but for the scope so the server can switch MPXCapture scope processing on/off.
+/////////////////////////////////////////////////////////////////
 let _heartbeatInterval = null;
+
 function checkHeartbeatStatus() {
-    const hasInstances = __instances.size > 0;
-    if (hasInstances && !_heartbeatInterval) {
-        MpxHub.send({ type: "MPX", cmd: "spectrum_heartbeat" });
-        _heartbeatInterval = setInterval(() => {
-            MpxHub.send({ type: "MPX", cmd: "spectrum_heartbeat" });
-        }, 2000);
-    } else if (!hasInstances && _heartbeatInterval) {
-        clearInterval(_heartbeatInterval);
-        _heartbeatInterval = null;
-    }
+  const hasInstances = __instances.size > 0;
+
+  if (hasInstances && !_heartbeatInterval) {
+    // Start heartbeat (send one immediately, then repeat)
+    MpxHub.send({ type: "MPX", cmd: "scope_heartbeat" });
+    _heartbeatInterval = setInterval(() => {
+      MpxHub.send({ type: "MPX", cmd: "scope_heartbeat" });
+    }, 2000);
+  }
+  else if (!hasInstances && _heartbeatInterval) {
+    // Stop heartbeat
+    clearInterval(_heartbeatInterval);
+    _heartbeatInterval = null;
+  }
 }
 
 function createScopeInstance(containerId = "level-meter-container", options = {}) {
@@ -181,7 +195,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   block.appendChild(wrap);
   parent.appendChild(block);
 
-  // --- MODE LABEL ---
+  // Mode label (bottom-left, non-clickable)
   const modeLabel = document.createElement("div");
   modeLabel.id = `mpx-mode-label-${instanceKey}`;
   modeLabel.title = "Oscilloscope view";
@@ -196,7 +210,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   const ctx = canvas.getContext("2d");
 
+  //////////////////////////////////////////////////////////////////
   // Scope state
+  //////////////////////////////////////////////////////////////////
   let scopeWave = [];
   const SCOPE_SAMPLES = 1024;
   const SCOPE_GAIN = 1.0;
@@ -238,6 +254,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   const OFFSET_X = 32;
   const Y_STRETCH = 0.8;
 
+  //////////////////////////////////////////////////////////////////
+  // Zoom helpers
+  //////////////////////////////////////////////////////////////////
   function updateZoomBounds() {
     const maxVal = SCOPE_SAMPLES;
     const effectiveZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
@@ -246,17 +265,19 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     visibleEnd = viewCenter + visibleRange / 2;
 
     if (visibleRange >= maxVal) {
-        visibleStart = (maxVal - visibleRange) / 2;
-        visibleEnd = (maxVal + visibleRange) / 2;
-        viewCenter = maxVal / 2;
+      visibleStart = (maxVal - visibleRange) / 2;
+      visibleEnd = (maxVal + visibleRange) / 2;
+      viewCenter = maxVal / 2;
     } else {
-        if (visibleStart < 0) { visibleStart = 0; visibleEnd = visibleRange; }
-        if (visibleEnd > maxVal) { visibleEnd = maxVal; visibleStart = maxVal - visibleRange; }
-        viewCenter = (visibleStart + visibleEnd) / 2;
+      if (visibleStart < 0) { visibleStart = 0; visibleEnd = visibleRange; }
+      if (visibleEnd > maxVal) { visibleEnd = maxVal; visibleStart = maxVal - visibleRange; }
+      viewCenter = (visibleStart + visibleEnd) / 2;
     }
   }
 
-  function updateZoomBoundsY() {}
+  function updateZoomBoundsY() {
+    // Intentionally minimal: Y-zoom is applied as a multiplier in drawing.
+  }
 
   function setZoom(newZoomLevel, newCenter = null) {
     zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoomLevel));
@@ -291,6 +312,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     else canvas.style.cursor = "crosshair";
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Tooltip
+  //////////////////////////////////////////////////////////////////
   function showTooltip() {
     if (tooltipElement) return;
     tooltipElement = document.createElement("div");
@@ -336,6 +360,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     }, 200);
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Drawing
+  //////////////////////////////////////////////////////////////////
   function drawBackground() {
     const h = canvas.clientHeight;
     const w = canvas.clientWidth;
@@ -385,29 +412,30 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 2]);
 
-    if(refTopY >= TOP_MARGIN && refTopY <= logicalHeight - BOTTOM_MARGIN) {
-        ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.font = "bold 11px Arial";
-        ctx.fillText("REF", OFFSET_X - 26, refTopY);
-        ctx.beginPath();
-        ctx.moveTo(OFFSET_X, refTopY);
-        ctx.lineTo(logicalWidth, refTopY);
-        ctx.stroke();
+    if (refTopY >= TOP_MARGIN && refTopY <= logicalHeight - BOTTOM_MARGIN) {
+      ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold 11px Arial";
+      ctx.fillText("REF", OFFSET_X - 26, refTopY);
+      ctx.beginPath();
+      ctx.moveTo(OFFSET_X, refTopY);
+      ctx.lineTo(logicalWidth, refTopY);
+      ctx.stroke();
     }
 
-    if(refBotY >= TOP_MARGIN && refBotY <= logicalHeight - BOTTOM_MARGIN) {
-        ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.font = "bold 11px Arial";
-        ctx.fillText("REF", OFFSET_X - 26, refBotY);
-        ctx.beginPath();
-        ctx.moveTo(OFFSET_X, refBotY);
-        ctx.lineTo(logicalWidth, refBotY);
-        ctx.stroke();
+    if (refBotY >= TOP_MARGIN && refBotY <= logicalHeight - BOTTOM_MARGIN) {
+      ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold 11px Arial";
+      ctx.fillText("REF", OFFSET_X - 26, refBotY);
+      ctx.beginPath();
+      ctx.moveTo(OFFSET_X, refBotY);
+      ctx.lineTo(logicalWidth, refBotY);
+      ctx.stroke();
     }
+
     ctx.setLineDash([]);
   }
 
@@ -429,11 +457,12 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     const visibleSampleCount = visibleEnd - visibleStart;
     if (visibleSampleCount <= 0) return;
 
+    // Peak-hold background band
     const yGlobalMax = centerY - (globalScopeMax * SCOPE_GAIN * scaleY);
     const yGlobalMin = centerY - (globalScopeMin * SCOPE_GAIN * scaleY);
     if (Number.isFinite(yGlobalMax) && Number.isFinite(yGlobalMin)) {
-        ctx.fillStyle = "rgba(143, 234, 255, 0.08)";
-        ctx.fillRect(0, yGlobalMax, logicalWidth, yGlobalMin - yGlobalMax);
+      ctx.fillStyle = "rgba(143, 234, 255, 0.08)";
+      ctx.fillRect(0, yGlobalMax, logicalWidth, yGlobalMin - yGlobalMax);
     }
 
     ctx.beginPath();
@@ -442,11 +471,11 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
     let first = true;
     for (let i = startSample; i <= endSample; i++) {
-        const x = OFFSET_X + ((i - visibleStart) / visibleSampleCount) * usableWidth;
-        const val = scopeWave[i] * SCOPE_GAIN;
-        const y = centerY - (val * scaleY);
-        if (first) { ctx.moveTo(x, y); first = false; }
-        else ctx.lineTo(x, y);
+      const x = OFFSET_X + ((i - visibleStart) / visibleSampleCount) * usableWidth;
+      const val = scopeWave[i] * SCOPE_GAIN;
+      const y = centerY - (val * scaleY);
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
     }
     ctx.stroke();
   }
@@ -460,17 +489,17 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     drawGrid();
 
     if (scopeWave.length > 0) {
-        drawScopeTrace();
+      drawScopeTrace();
     } else {
-        const w = canvas.clientWidth;
-        const h = canvas.clientHeight;
-        ctx.save();
-        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.font = "italic 14px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("Waiting for Data...", w / 2, h / 2);
-        ctx.restore();
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.font = "italic 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Waiting for Data...", w / 2, h / 2);
+      ctx.restore();
     }
 
     if (zoomLevel !== 1.0 || zoomLevelY > 1.0) {
@@ -484,7 +513,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       ctx.textAlign = "center";
       ctx.fillText(infoText, canvas.clientWidth / 2, canvas.clientHeight - 10);
     } else {
-        drawMagnifierIcon();
+      drawMagnifierIcon();
     }
 
     ctx.font = "12px Arial";
@@ -494,39 +523,41 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     ctx.fillText(sampleRate + " Hz", canvas.clientWidth - 8, canvas.clientHeight - 10);
   }
 
-  // --- MAIN FIX IS HERE ---
+  //////////////////////////////////////////////////////////////////
+  // Data handler (Scope)
+  //////////////////////////////////////////////////////////////////
   function handleMpxScope(msg) {
     if (!canvas || !canvas.isConnected) return;
     if (!msg || typeof msg !== "object") return;
 
-    // Check all possible data keys
-    const sourceData = Array.isArray(msg.o) ? msg.o : 
-                      (Array.isArray(msg.scope) ? msg.scope : 
-                      (Array.isArray(msg.w) ? msg.w : []));
+    // Accept multiple possible keys (compat)
+    const sourceData = Array.isArray(msg.o) ? msg.o :
+      (Array.isArray(msg.scope) ? msg.scope :
+      (Array.isArray(msg.w) ? msg.w : []));
 
-    // FIX: If the packet contains an empty array, IGNORE IT completely.
-    // Do NOT reset scopeWave to []. Do NOT redraw empty.
-    // This preserves the last valid frame on screen until valid data arrives.
-    if (sourceData.length === 0) {
-        return; 
-    }
+    // If packet contains an empty array, ignore it.
+    // Do NOT clear the scopeWave, to keep last valid frame visible.
+    if (sourceData.length === 0) return;
 
     // Decay peak hold
     globalScopeMax *= SCOPE_PEAK_DECAY;
     globalScopeMin *= SCOPE_PEAK_DECAY;
 
-    // Update Buffer
+    // Update buffer
     scopeWave = [];
     for (let i = 0; i < sourceData.length; i++) {
-        const v = sourceData[i];
-        scopeWave.push(v);
-        if (v > globalScopeMax) globalScopeMax = v;
-        if (v < globalScopeMin) globalScopeMin = v;
+      const v = sourceData[i];
+      scopeWave.push(v);
+      if (v > globalScopeMax) globalScopeMax = v;
+      if (v < globalScopeMin) globalScopeMin = v;
     }
 
     drawScope();
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Resize
+  //////////////////////////////////////////////////////////////////
   function resize() {
     if (!canvas || !canvas.parentElement) return;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -541,6 +572,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     drawScope();
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Mouse events
+  //////////////////////////////////////////////////////////////////
   function setupMouseEvents() {
     canvas.addEventListener("mouseenter", () => {
       KeyboardHub.setActive(instance);
@@ -550,10 +584,15 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     canvas.addEventListener("mousemove", (e) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
+
       const wasHovering = isHoveringMagnifier;
       if (zoomLevel === 1.0 && zoomLevelY <= MIN_ZOOM_Y) {
-        isHoveringMagnifier = mouseX >= magnifierArea.x && mouseX <= magnifierArea.x + magnifierArea.width;
-      } else { isHoveringMagnifier = false; }
+        isHoveringMagnifier =
+          mouseX >= magnifierArea.x &&
+          mouseX <= magnifierArea.x + magnifierArea.width;
+      } else {
+        isHoveringMagnifier = false;
+      }
 
       if (isHoveringMagnifier && !wasHovering) showTooltip();
       else if (!isHoveringMagnifier && wasHovering) hideTooltip();
@@ -561,6 +600,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
       if (!isDragging) { hoverX = mouseX; drawScope(); }
       if (!isDragging) return;
+
       if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) hasDragged = true;
       if (!hasDragged) return;
       e.preventDefault(); e.stopPropagation();
@@ -569,7 +609,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       const pixelsPerUnit = (canvas.clientWidth - OFFSET_X) / visibleRange;
       const delta = -(e.clientX - dragStartX) / pixelsPerUnit;
       viewCenter = dragStartCenter + delta;
-      updateZoomBounds(); updateZoomBoundsY(); drawScope();
+      updateZoomBounds();
+      updateZoomBoundsY();
+      drawScope();
     });
 
     canvas.addEventListener("mouseleave", () => {
@@ -582,19 +624,22 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault(); e.stopPropagation();
       if (isHoveringMagnifier || ctrlKeyPressed) { isHoveringMagnifier = false; hideTooltip(); }
+
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const zoomDelta = e.deltaY > 0 ? 1 / (e.ctrlKey ? ZOOM_STEP_Y : ZOOM_STEP) : (e.ctrlKey ? ZOOM_STEP_Y : ZOOM_STEP);
 
-      if (e.ctrlKey) { setZoomY(zoomLevelY * zoomDelta); } 
-      else {
+      if (e.ctrlKey) {
+        setZoomY(zoomLevelY * zoomDelta);
+      } else {
         const usableWidth = (canvas.clientWidth - OFFSET_X);
         const totalVisualWidth = usableWidth * zoomLevel;
         const leftPadding = (usableWidth - totalVisualWidth) / 2;
+
         let unitAtMouse = SCOPE_SAMPLES / 2;
         if (mouseX >= OFFSET_X + leftPadding && mouseX <= OFFSET_X + leftPadding + totalVisualWidth) {
-            const relX = mouseX - (OFFSET_X + leftPadding);
-            unitAtMouse = (relX / totalVisualWidth) * SCOPE_SAMPLES;
+          const relX = mouseX - (OFFSET_X + leftPadding);
+          unitAtMouse = (relX / totalVisualWidth) * SCOPE_SAMPLES;
         }
         setZoom(zoomLevel * zoomDelta, unitAtMouse);
       }
@@ -610,13 +655,15 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
     canvas.addEventListener("mouseup", (e) => {
       if (e.button === 0 && isDragging) {
-        isDragging = false; updateCursor();
+        isDragging = false;
+        updateCursor();
         if (hasDragged) e.stopPropagation();
       }
     });
 
     canvas.addEventListener("contextmenu", (e) => {
-      e.preventDefault(); e.stopPropagation(); zoomReset();
+      e.preventDefault(); e.stopPropagation();
+      zoomReset();
     });
 
     canvas.addEventListener("click", (e) => {
@@ -624,42 +671,66 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     });
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Keyboard event handlers
+  //////////////////////////////////////////////////////////////////
   function onGlobalKeyDown(e) {
-    if (e.target?.tagName === 'INPUT' || e.target?.tagName === 'TEXTAREA' || e.target?.isContentEditable) return;
+    if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA" || e.target?.isContentEditable) return;
+
     if (e.key === "Control" && !ctrlKeyWasPressed) {
-      ctrlKeyPressed = true; ctrlKeyWasPressed = true;
+      ctrlKeyPressed = true;
+      ctrlKeyWasPressed = true;
       if (!tooltipElement) showTooltip();
       updateCursor();
     }
+
     if (!e.ctrlKey) return;
+
     let handled = false;
     switch (e.key) {
       case "ArrowUp":    setZoom(zoomLevel * ZOOM_STEP, viewCenter); handled = true; break;
       case "ArrowDown":  setZoom(zoomLevel / ZOOM_STEP, viewCenter); handled = true; break;
       case "ArrowLeft":
         if (zoomLevel > MIN_ZOOM) {
-          const range = visibleEnd - visibleStart; const panStep = range * 0.05;
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
           setZoom(zoomLevel, viewCenter - panStep);
         }
-        handled = true; break;
+        handled = true;
+        break;
       case "ArrowRight":
         if (zoomLevel > MIN_ZOOM) {
-          const range = visibleEnd - visibleStart; const panStep = range * 0.05;
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
           setZoom(zoomLevel, viewCenter + panStep);
         }
-        handled = true; break;
-      case " ": zoomReset(); handled = true; break;
+        handled = true;
+        break;
+      case " ":
+        zoomReset();
+        handled = true;
+        break;
     }
-    if (handled) { e.preventDefault(); e.stopPropagation(); hideTooltip(); }
+
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+      hideTooltip();
+    }
   }
 
   function onGlobalKeyUp(e) {
     if (e.key === "Control") {
-      ctrlKeyPressed = false; ctrlKeyWasPressed = false;
-      hideTooltip(); updateCursor();
+      ctrlKeyPressed = false;
+      ctrlKeyWasPressed = false;
+      hideTooltip();
+      updateCursor();
     }
   }
 
+  //////////////////////////////////////////////////////////////////
+  // Lifecycle
+  //////////////////////////////////////////////////////////////////
   const unsubscribe = MpxHub.subscribe(handleMpxScope);
 
   function destroy() {
@@ -671,15 +742,25 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   }
 
   const instance = {
-    id: instanceKey, containerId, wrap, canvas,
-    resize, zoomReset, destroy,
-    _onGlobalKeyDown: onGlobalKeyDown, _onGlobalKeyUp: onGlobalKeyUp,
+    id: instanceKey,
+    containerId,
+    wrap,
+    canvas,
+    resize,
+    zoomReset,
+    destroy,
+    _onGlobalKeyDown: onGlobalKeyDown,
+    _onGlobalKeyUp: onGlobalKeyUp,
   };
 
   KeyboardHub.installOnce();
   setupMouseEvents();
+
   __instances.set(instanceKey, instance);
+
+  // IMPORTANT: keep heartbeat active while at least one scope instance exists
   checkHeartbeatStatus();
+
   resize();
   updateZoomBounds();
   updateZoomBoundsY();
@@ -722,6 +803,7 @@ function destroy(target) {
   if (byContainer) return byContainer.destroy?.();
 }
 
+// Global exports
 window.MetricsScope = window.MetricsScope || { cleanup: closeMpxSocket };
 window.MetricsScope.init = init;
 window.MetricsScope.zoomReset = zoomReset;

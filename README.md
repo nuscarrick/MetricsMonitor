@@ -4,10 +4,8 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.3a
-- Access rights to MPXCapture under Linux are granted automatically
-- VU meter display now also starts with "MODULE_SEQUENCE": "1",
-- Frequency display at cursor line in spectrum corrected
+## v2.3b
+- Oscilloscope and spectrum analyzer treated separately for resource reasons -> reduction of CPU and network load
 
 ## Important note for this version: 
 
@@ -39,13 +37,18 @@ https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF
    - MeterPilotScale: Adjust this up/down (100/50er steps) until you reach approximately 7 kHz.
    - MeterMPXScale: Adjust this up/down (100/50er steps) until you reach approximately 75 kHz.
    - MeterRDSScale: Adjust this up/down (100/50er steps)until you reach approximately 2.0 kHz.	
-
-3. Fine-tuning (via Calibration):
+   
+   Now you can use the calibration tool to calculate the exact scale values ​​so that the calibration values ​​remain at 0 (Step 3 - Fine-tuning is therefore omitted!):
+   https://tef.noobish.eu/logos/MetricsMonitorCalibrationTool.html  
+   
+3. Alternatively: Manual fine-tuning:
 
    - MeterPilotCalibration Display: 7.2 kHz. Target: 6.7 kHz. -> MeterPilotCalibration: -0.5
-   - MeterMPXCalibration Display: 78 kHz MPX. Target: 75 kHz. -> MeterMPXCalibration: -3.0
+   - MeterMPXCalibration Display: 78.2 kHz MPX. Target: 78.0 kHz. -> MeterMPXCalibration: -0.2
    - MeterRDSCalibration Display: 2.5 kHz RDS. Target: 2.0 kHz. -> MeterRDSCalibration: -0.5
    
+   Note: The calibration variables should only be used for direct fine-tuning in the decimal range (0.x), as otherwise they will distort the measurement result. Ideally, they should be reset to 0 later using the Metrics Monitor Calibration Tool.
+
 
 ## Configuration options
 
@@ -156,13 +159,18 @@ If you have any questions, would like to report problems, or have suggestions fo
 <details>
 <summary>History</summary>
 
-## v2.3
+### v2.3a
+- Access rights to MPXCapture under Linux are granted automatically
+- VU meter display now also starts with "MODULE_SEQUENCE": "1",
+- Frequency display at cursor line in spectrum corrected
+
+### v2.3
 - Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
 - Maximum and minimum peak markers in the oscilloscope graph (line and area)
 - Added detection and insertion of the multipath icon (element from the UI add-on plugin) to the header bar
 - Fixed a false start issue with the audio display in the signal meter
 
-## v2.2
+### v2.2
 - Improved Pilot, MPX, and RDS calculations
 - Enabled display of other signal patterns in the scope display
 - Refined tilt correction
@@ -172,20 +180,20 @@ If you have any questions, would like to report problems, or have suggestions fo
 - CPU/Network Optimization: Spectrum/Scope calculation is gated (only active when accessed via a browser)
 - New variable EnableAnalyzerAdminMode restricts analyzer/oscilloscope display to administrators
 
-## v2.1
+### v2.1
 
 - Integration of an oscilloscope (click on MPX Spectrum title in the analyzer!)
 - New variable for adjusting the tilt at the sound card input (see configuration options!)
 - Sound card reconnect logic built in (Tnx to AmateurAudioDude)
 
-## v2.0
+### v2.0
 
 - Using our own program library for spectrum analysis and display calculation -> more resource-efficient and higher measurement accuracy
 - New scale variables for PILOT, MPX and RDS (see calibration)
 - Automatic detection of the MPX channel
 - Fixed issues with relative image paths
 
-## v1.5
+### v1.5
 
 - Improved PILOT/MPX/RDS detection
 - Corrected faulty spectrum display on smartphone screen

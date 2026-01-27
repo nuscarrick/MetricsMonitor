@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.3a)  //
+//  metricsmonitor-analyzer.js                      (V2.3b)  //
 //                                                           //
-//  by Highpoint               last update: 24.01.2026       //
+//  by Highpoint               last update: 27.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -13,25 +13,25 @@
 
 (() => {
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
-const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
+const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "plughw:CARD=sndrpihifiberry,DEV=0";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotCalibration = -2;    // Do not touch - this value is automatically updated via the config file
-const MeterMPXCalibration = -15;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = 5;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 100;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 125;    // Do not touch - this value is automatically updated via the config file
-const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 99.50194973563643;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 170.11408728457587;    // Do not touch - this value is automatically updated via the config file
+const fftSize = 2048;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.6;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -41,7 +41,8 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
+
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
 // Default mode is Spectrum only (oscilloscope moved to metricsmonitor-scope.js).
 
@@ -69,6 +70,8 @@ const MpxHub = (() => {
         let msg;
         try { msg = JSON.parse(evt.data); } catch { return; }
         if (!msg || typeof msg !== "object" || msg.type !== "MPX") return;
+		
+		// console.log(msg); 
 
         // Pass the entire message (spectrum only used here)
         listeners.forEach(fn => {
@@ -426,13 +429,13 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     tooltipElement.id = `mpx-zoom-tooltip-${instanceKey}`;
     tooltipElement.innerHTML = `
       <div style="margin-bottom: 5px; font-weight: bold;">Zoom Controls</div>
-      <div style="margin-bottom: 4px;">• Scroll wheel: Horizontal zoom</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Scroll wheel: Vertical zoom</div>
-      <div style="margin-bottom: 4px;">• Left-click + Drag: Pan view</div>
-      <div style="margin-bottom: 4px;">• Right-click: Reset zoom</div>
+      <div style="margin-bottom: 4px;">â€¢ Scroll wheel: Horizontal zoom</div>
+      <div style="margin-bottom: 4px;">â€¢ Ctrl + Scroll wheel: Vertical zoom</div>
+      <div style="margin-bottom: 4px;">â€¢ Left-click + Drag: Pan view</div>
+      <div style="margin-bottom: 4px;">â€¢ Right-click: Reset zoom</div>
       <div style="margin-top: 5px; border-top: 1px solid rgba(143, 234, 255, 0.2); padding-top: 5px;"></div>
-      <div style="margin-bottom: 4px;">• Ctrl + Arrows: Fine Adjust</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Space: Reset</div>
+      <div style="margin-bottom: 4px;">â€¢ Ctrl + Arrows: Fine Adjust</div>
+      <div style="margin-bottom: 4px;">â€¢ Ctrl + Space: Reset</div>
     `;
     tooltipElement.style.cssText = `
       position: absolute;

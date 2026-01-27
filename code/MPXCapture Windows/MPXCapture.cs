@@ -1,19 +1,18 @@
 ﻿/*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.2)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.3b)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
  * - Precision Pilot Measurement (IQ demod + RMS)
  * - Precision RDS Measurement (IQ demod + RMS) with Dual-Mode reference
  * - Pilot-present gating
- * - Real-time FFT Spectrum AND Oscilloscope (Parallel Output)
+ * - Real-time FFT Spectrum AND Oscilloscope (On-Demand via UDP)
  * - Dynamic Config Reload
  * - MPX TruePeak (Catmull-Rom 4x/8x)
  * - DC Blocker (Robust High-pass, < 1Hz) 
  * - ITU-R BS.412 MPX Power Measurement (60s Integration)
  * - Tilt Correction (Stabilized Linear Gain Method)
  * - Decoupled Spectrum/Meter Calibration
- * - CPU Optimization: Spectrum/Scope calculation is gated via UDP commands
  *
  * Compile Windows (x64/x86):
  * dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
@@ -57,14 +56,15 @@ public static class Config
     // Visual Dynamics
     public static float SpectrumAttack = 0.25f;
     public static float SpectrumDecay = 0.15f;
-    public static int SpectrumSendInterval = 15; // ~66 FPS
+    public static int SpectrumSendInterval = 30; 
 
     // Processing Options
     public static int TruePeakFactor = 8;
     public static int MPX_LPF_100kHz = 1;
 
-    // State Control
-    public static volatile bool EnableSpectrum = false; // Default OFF until requested
+    // State Control - SEPARATE FLAGS MATCHING C VERSION
+    public static volatile bool EnableSpectrum = false; 
+    public static volatile bool EnableScope = false;
 
     private static string _configPath = "metricsmonitor.json";
     private static DateTime _lastModTime;
@@ -116,14 +116,12 @@ public static class Config
                     return (int)MathF.Round(f);
                 }
 
-                // 1. Meter Gain Calculation
                 float mGainDB = GetFloat("MeterInputCalibration", -9999f);
                 if (mGainDB > -9000f) {
                     MeterInputCalibrationDB = mGainDB;
                     MeterGain = (float)Math.Pow(10.0, mGainDB / 20.0);
                 }
                 
-                // 2. Spectrum Gain Calculation (Independent)
                 float sGainDB = GetFloat("SpectrumInputCalibration", -9999f);
                 if (sGainDB > -9000f) {
                     SpectrumInputCalibrationDB = sGainDB;
@@ -149,8 +147,6 @@ public static class Config
                 if (tpf == 4 || tpf == 8) TruePeakFactor = tpf;
 
                 MPX_LPF_100kHz = GetInt("MPX_LPF_100kHz", MPX_LPF_100kHz) != 0 ? 1 : 0;
-
-                // Console.Error.WriteLine($"[MPX] Config Update: MeterGain={MeterInputCalibrationDB:F2}dB SpecGain={SpectrumInputCalibrationDB:F2}dB Tilt={MPXTiltCalibration:F1}us");
             }
         }
         catch (Exception ex)
@@ -422,14 +418,19 @@ public class MpxDemodulator
         if (pilotPresent != 0) { p_integrator += p_ki * p_errLP; float maxPull = 50f * (2f * MathF.PI / sr); p_integrator = DspUtils.Clamp(p_integrator, -maxPull, +maxPull); p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad + (p_kp * p_errLP + p_integrator)); } 
         else { p_phaseRad = Wrap2Pi(p_phaseRad + p_w0Rad); meanSqPilot *= 0.9995f; }
         float p_c = MathF.Cos(p_phaseRad); float I_P = lpfI_Pilot.Process(rawSample * p_c); float Q_P = lpfQ_Pilot.Process(rawSample * MathF.Sin(p_phaseRad));
-        meanSqPilot += ((I_P * I_P + Q_P * Q_P) - meanSqPilot) * rmsAlpha; PilotMag = (pilotPresent != 0) ? MathF.Sqrt(MathF.Max(meanSqPilot, 0f)) : 0f;
+        meanSqPilot += ((I_P * I_P + Q_P * Q_P) - meanSqPilot) * rmsAlpha; 
+        
+        PilotMag = (pilotPresent != 0) ? (2.0f * MathF.Sqrt(MathF.Max(meanSqPilot, 0f))) : 0f;
+
         rdsRefBlend += ((pilotPresent != 0 ? 1f : 0f) - rdsRefBlend) * blendAlpha; float phase57_pilot = Wrap2Pi(3f * p_phaseRad);
         float rdsFiltered57 = bpf57.Process(rawSample); rdsPow += (rdsFiltered57 * rdsFiltered57 - rdsPow) * rdsPowAlpha; float rdsRms = MathF.Sqrt(MathF.Max(rdsPow, 1e-12f));
         if (pilotPresent == 0) { float r_errNorm = (rdsFiltered57 * (-MathF.Sin(r_phaseRad))) / (rdsRms + 1e-9f); r_errLP += (r_errNorm - r_errLP) * r_errAlpha; r_integrator += r_ki * r_errLP; float maxPull = 100f * (2f * MathF.PI / sr); r_integrator = DspUtils.Clamp(r_integrator, -maxPull, +maxPull); r_phaseRad = Wrap2Pi(r_phaseRad + r_w0Rad + (r_kp * r_errLP + r_integrator)); } 
         else { r_phaseRad = phase57_pilot; r_integrator = 0f; r_errLP = 0f; }
         float b = rdsRefBlend; float c57 = b * MathF.Cos(phase57_pilot) + (1f - b) * MathF.Cos(r_phaseRad); float s57 = b * MathF.Sin(phase57_pilot) + (1f - b) * MathF.Sin(r_phaseRad);
         float I_R = lpfI_Rds.Process(rawSample * c57); float Q_R = lpfQ_Rds.Process(rawSample * s57);
-        meanSqRds += ((I_R * I_R + Q_R * Q_R) - meanSqRds) * rmsAlpha; RdsMag = MathF.Sqrt(MathF.Max(meanSqRds, 0f));
+        meanSqRds += ((I_R * I_R + Q_R * Q_R) - meanSqRds) * rmsAlpha; 
+        
+        RdsMag = 2.0f * 1.4142f * MathF.Sqrt(MathF.Max(meanSqRds, 0f));
     }
 
     private static float Wrap2Pi(float x) { float twoPi = 2f * MathF.PI; if (x >= twoPi) x -= twoPi; if (x < 0) x += twoPi; if (x >= twoPi || x < 0) x %= twoPi; if (x < 0) x += twoPi; return x; }
@@ -460,14 +461,12 @@ class Program
         string cfgPath = (args.Length >= 4) ? args[3] : "metricsmonitor.json";
         Config.Init(cfgPath);
 
-        // Get UDP Port from arguments (default to 60001 if missing)
         int udpPort = 60001;
         if (args.Length >= 5 && int.TryParse(args[4], out int u)) udpPort = u;
         
-        // Start UDP Listener for Spectrum Toggle
         StartUdpListener(udpPort);
 
-        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}' Spectrum:{Config.EnableSpectrum} UDP:{udpPort}");
+        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}' UDP:{udpPort}");
 
         var enumerator = new MMDeviceEnumerator();
         MMDevice device = null;
@@ -562,8 +561,9 @@ class Program
                 int frameSize = channels * bytesPerSample;
                 int frames = e.BytesRecorded / frameSize;
 
-                // Cache active state for this frame block to ensure consistency
-                bool spectrumEnabled = Config.EnableSpectrum;
+                // Capture separate flags
+                bool enableSpectrum = Config.EnableSpectrum;
+                bool enableScope = Config.EnableScope;
 
                 for (int i = 0; i < frames; i++)
                 {
@@ -573,7 +573,7 @@ class Program
                     if (isFloat) {
                         vL = BitConverter.ToSingle(e.Buffer, offset);
                         if (channels > 1) vR = BitConverter.ToSingle(e.Buffer, offset + 4);
-                    } else { /* PCM omitted */ }
+                    }
 
                     if (doDecimate) {
                         resamplePhase += 1.0;
@@ -592,28 +592,21 @@ class Program
                     float rawVal = (activeChannel == 1) ? vR : vL;
                     rawVal *= BASE_PREAMP;
 
-                    // ===========================================================================
-                    //  SIGNAL CHAIN (With Decoupled Calibration)
-                    // ===========================================================================
-
-                    // 1. TILT CORRECTION (First)
+                    // 1. TILT CORRECTION
                     float vTilt = tiltCorrector.Process(rawVal); 
 
                     // 2. METERING BRANCH
                     float vMeterCalibrated = vTilt * Config.MeterGain;
                     
-                    // 3. TRUE PEAK MEASUREMENT (On vMeterCalibrated BEFORE DC Block)
+                    // 3. TRUE PEAK MEASUREMENT
                     float signalForPeak = vMeterCalibrated;
                     if (Config.MPX_LPF_100kHz != 0) signalForPeak = mpxPeakLpf.Process(signalForPeak);
                     float peakN = truePeak.Process(signalForPeak, Config.TruePeakFactor);
                     float mpxKhz = peakN * Config.MeterMPXScale;
                     float smoothMpx = env.Process(mpxKhz);
 
-                    // 4. SPECTRUM/DEMOD BRANCH (Needs separate gain + DC blocking)
+                    // 4. SPECTRUM/DEMOD BRANCH
                     float vSpecCalibrated = vTilt * Config.SpectrumGain;
-                    
-                    // DC Blocking (Separate for Demod/FFT)
-                    // Note: We use vMeterCalibrated for Demod to ensure Pilot/RDS levels match Meters
                     float mpxForDemod = dcBlocker.Process(vMeterCalibrated); 
                     demod.Process(mpxForDemod);
 
@@ -621,7 +614,7 @@ class Program
                     float mpxSq = signalForPeak * signalForPeak;
                     bs412_power += (mpxSq - bs412_power) * bs412_alpha;
                     float powerDbr = 10f * MathF.Log10((bs412_power + 1e-9f) / (BS412_REF_POWER * BS412_REF_POWER + 1e-9f));
-                    if (smoothB < -90f) smoothB = powerDbr; else smoothB = (smoothB * 0.999f) + (powerDbr * 0.001f);
+                    if (smoothB < -90f) smoothB = powerDbr; else smoothB = (smoothB * 0.98f) + (powerDbr * 0.02f);
 
                     float pKhz = demod.PilotMag * Config.MeterPilotScale;
                     if (smoothP == 0f) smoothP = pKhz; else smoothP = (smoothP * 0.9f) + (pKhz * 0.1f);
@@ -630,25 +623,42 @@ class Program
                     if (smoothR == 0f) smoothR = rKhz; else smoothR = (smoothR * 0.9f) + (rKhz * 0.1f);
 
                     // ===========================================================================
-                    //  CONDITIONAL PROCESSING (Spectrum / Scope)
+                    //  CONDITIONAL PROCESSING (Separated)
                     // ===========================================================================
-                    if (spectrumEnabled) 
+                    
+                    // === SPECTRUM ===
+                    if (enableSpectrum) 
                     {
-                        // --- FFT Buffer ---
                         if (fftIndex < fftSize) {
                             fftBuffer[fftIndex] = new Complex(vSpecCalibrated * window[fftIndex], 0);
                             fftIndex++;
                         } else {
+                            // Don't process FFT here inside the loop for every sample if full
+                            // Wait for Output block to clear it (C logic: QuickFFT inside printf check)
+                            // But in C# structure we usually do it when buffer fills.
+                            // To match C exactly: 
+                            // C logic: fills buf, then inside output block: calculates FFT, prints, resets index.
+                            // Here we just keep filling or hold.
+                            // Better C# approach keeping flow:
+                            // We will process FFT at output time to be safe or process here and buffer.
+                            // Let's stick to C# existing flow: Buffer fill -> Process -> Smooth.
                             QuickFFT.Compute(fftBuffer);
                             for (int k = 0; k < fftSize / 2; k++) {
                                 float mag = (float)fftBuffer[k].Magnitude;
+                                // In C: float linearAmp = (mag * 2.0f) / (float)fftSize; 
+                                // then smooth = smooth * (1-a) + lin * a
+                                // C# magnitude is already linear amplitude of bin? QuickFFT?
+                                // Let's keep existing C# smoothing but note C uses * 15.0f at output
                                 if (mag > smoothSpectrum[k]) smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumAttack)) + (mag * Config.SpectrumAttack);
                                 else smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumDecay)) + (mag * Config.SpectrumDecay);
                             }
                             fftIndex = 0;
                         }
+                    }
 
-                        // --- Oscilloscope Trigger ---
+                    // === SCOPE ===
+                    if (enableScope)
+                    {
                         float scopeInput = vTilt; 
 
                         if (Math.Abs(scopeInput) < SILENCE_THRES) {
@@ -693,18 +703,17 @@ class Program
                         var sb = new StringBuilder();
                         sb.Append("{\"s\":[");
                         
-                        // Only output Spectrum data if enabled
-                        if (spectrumEnabled) {
+                        if (enableSpectrum) {
                             for (int k = 0; k < fftSize / 2; k++) {
-                                sb.Append(smoothSpectrum[k].ToString("0.0000000", CultureInfo.InvariantCulture));
+                                // C multiplies by 15.0f for display scaling
+                                sb.Append((smoothSpectrum[k] * 1.0f).ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < (fftSize / 2) - 1) sb.Append(",");
                             }
                         }
                         
                         sb.Append("],\"o\":[");
                         
-                        // Only output Scope data if enabled
-                        if (spectrumEnabled) {
+                        if (enableScope) {
                             for (int k = 0; k < scopeBuf.Length; k++) {
                                 sb.Append(scopeBuf[k].ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < scopeBuf.Length - 1) sb.Append(",");
@@ -714,6 +723,7 @@ class Program
                         sb.Append("],\"p\":"); sb.Append(smoothP.ToString("0.00", CultureInfo.InvariantCulture));
                         sb.Append(",\"r\":"); sb.Append(smoothR.ToString("0.00", CultureInfo.InvariantCulture));
                         sb.Append(",\"m\":"); sb.Append(smoothMpx.ToString("0.00", CultureInfo.InvariantCulture));
+                        sb.Append(",\"b\":"); sb.Append(smoothB.ToString("0.00", CultureInfo.InvariantCulture));
                         sb.Append("}");
                         Console.WriteLine(sb.ToString());
                     }
@@ -729,32 +739,49 @@ class Program
         }
     }
 
-    // --- UDP Listener for Remote Control (Toggle Spectrum Processing) ---
+    // --- UDP Listener for Remote Control ---
     static void StartUdpListener(int port)
     {
         Task.Run(async () => {
             try 
             {
                 using var udp = new UdpClient(port);
-                // Console.Error.WriteLine($"[MPX] Listening for UDP commands on port {port}");
+                Console.Error.WriteLine($"[MPX] UDP Listener on port {port} - Commands: SPECTRUM=1/0, SCOPE=1/0");
                 
                 while (true) 
                 {
                     var result = await udp.ReceiveAsync();
                     string command = Encoding.UTF8.GetString(result.Buffer).Trim();
                     
-                    if (command == "SPECTRUM=1") 
+                    // Separate Logic for Spectrum
+                    if (command.Contains("SPECTRUM=1")) 
                     {
                         if (!Config.EnableSpectrum) {
                             Config.EnableSpectrum = true;
-                            // Console.Error.WriteLine("[MPX] Spectrum Processing ENABLED via UDP");
+                            Console.Error.WriteLine("[MPX] Spectrum ENABLED");
                         }
                     } 
-                    else if (command == "SPECTRUM=0") 
+                    else if (command.Contains("SPECTRUM=0")) 
                     {
                         if (Config.EnableSpectrum) {
                             Config.EnableSpectrum = false;
-                            // Console.Error.WriteLine("[MPX] Spectrum Processing DISABLED via UDP");
+                            Console.Error.WriteLine("[MPX] Spectrum DISABLED");
+                        }
+                    }
+                    
+                    // Separate Logic for Scope
+                    if (command.Contains("SCOPE=1")) 
+                    {
+                        if (!Config.EnableScope) {
+                            Config.EnableScope = true;
+                            Console.Error.WriteLine("[MPX] Scope ENABLED");
+                        }
+                    } 
+                    else if (command.Contains("SCOPE=0")) 
+                    {
+                        if (Config.EnableScope) {
+                            Config.EnableScope = false;
+                            Console.Error.WriteLine("[MPX] Scope DISABLED");
                         }
                     }
                 }
