@@ -4,8 +4,9 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.3b
-- Oscilloscope and spectrum analyzer treated separately for resource reasons -> reduction of CPU and network load
+## v2.3c
+- Alignment of scale values ​​adjusted
+- Remove duplicate peak displays
 
 ## Important note for this version: 
 
@@ -158,6 +159,9 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.3b
+- Oscilloscope and spectrum analyzer treated separately for resource reasons -> reduction of CPU and network load
 
 ### v2.3a
 - Access rights to MPXCapture under Linux are granted automatically
