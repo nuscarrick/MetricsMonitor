@@ -1,6 +1,3 @@
-/* --- LOADER / BASE LAYOUT ------------------------------- */
-
-/* Mobile layout adjustments (tablets/phones) */
 @media (max-width: 768px) {
   #signalPanel {
     margin-top: 0px !important;
@@ -13,7 +10,6 @@
   }
 }
 
-/* Main panel that holds header + meters/EQ/Analyzer */
 #signalPanel {
   display: flex;
   justify-content: flex-start;
@@ -23,11 +19,10 @@
   height: 235px;
   align-items: stretch;
   gap: 6px;
-  margin-top: -88px;       /* vertical offset (pulled upwards) */
+  margin-top: -88px;
   overflow: hidden;
 }
 
-/* Container for the dynamic content (Meters / EQ / Analyzer) */
 #level-meter-container {
   display: flex;
   justify-content: center;

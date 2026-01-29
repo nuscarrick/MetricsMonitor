@@ -1,4 +1,3 @@
-/* AudioMeter-Gruppe – vertikal (Titel oben, Balkenblock unten, Overlay in der Mitte) */
 .eq-group {
   display: flex;
   flex-direction: column;
@@ -7,10 +6,9 @@
   position: relative;
   margin-left: 5px;
   margin-top: 0px;
-  transform: translateY(10px); /* NEU: Passen Sie diesen Wert an, um den EQ zu verschieben */
+  transform: translateY(10px);
 }
 
-/* Balkenblock – horizontal */
 .eq-bars {
   display: flex;
   flex-direction: row;
@@ -18,21 +16,18 @@
   align-items: flex-end;
 }
 
-/* Mini-5-Band-EQ: etwas kleinere Balkenhöhe als Standard */
 .eq-group .level-meter .meter-bar {
   height: 140px;
 }
 
-/* Titel über dem EQ */
 #eqTitle {
   text-align: center;
   font-size: 9px;
-  color: #aaa; /* gleiche Farbe wie Skala */
+  color: #aaa;
   margin-bottom: 6px;
   width: 100%;
 }
 
-/* Overlay-Hinweis "Click play to show" */
 #eqHintWrapper {
   position: absolute;
   inset: 0;
@@ -54,42 +49,37 @@
   z-index: 10000;
 }
 
-/* Peak-Marker allgemein */
 .peak-flag {
   box-shadow: none !important;
   border: 0 !important;
   outline: none !important;
 }
 
-/* EQ-Peak nur leicht hervorheben, Farbe wird im JS gesetzt */
 .meter-bar[id^="eq"] .segment.peak-flag {
   box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
 }
 
-/* Vertical dB scale next to the meter bar */
 .meter-scale-AudioMeter {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 160px;
+  height: 165px;
   font-size: 9px;
   color: #aaa;
   margin-right: 4px;
   text-align: right;
-  position: relative; /* Hinzugefügt */
-  top: 0px;           /* Hinzugefügt: Passen Sie diesen Wert bei Bedarf an */
+  position: relative;
+  top: -5px;
 }
 
-/* Container für die Haupt-Signalanzeigen (Stereo + RF) */
 .signal-meters-group {
   display: flex;
   align-items: flex-end;
-  gap: 12px; /* Abstand zwischen RF und der Stereo-Gruppe */
-  transform: translateY(10px); /* Verschiebt die Gruppe nach unten */
+  gap: 12px;
+  transform: translateY(10px);
 }
 
-/* Original-Styling für den RF-Balken beibehalten/überschreiben */
 .signal-meters-group .level-meter {
-  transform: none; /* Setzt evtl. vorhandene Transformationen zurück */
+  transform: none;
 }
 

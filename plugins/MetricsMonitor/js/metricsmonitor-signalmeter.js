@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js                  (V2.3b)   //
+//  metricsmonitor-signalmeter.js                  (V2.3c)   //
 //                                                           //
-//  by Highpoint               last update: 27.01.2026       //
+//  by Highpoint               last update: 29.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -15,21 +15,21 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 3.5;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 67.20572640407762;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 72.11538460817307;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 147.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 136.2072;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
@@ -158,61 +158,76 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
     return applyIntensity(cSafe, intensity);
   }
 
-  function updatePeakValue(peaks, channel, current, holdMs, smoothing) {
-    const p = peaks[channel];
-    if (!p) return;
-    const now = Date.now();
-    if (current > p.value) {
-      p.value = current;
-      p.lastUpdate = now;
-    } else if (now - p.lastUpdate > holdMs) {
-      p.value = p.value * smoothing;
-      if (p.value < 0.5) p.value = 0;
-    }
+function updatePeakValue(peaks, channel, current, holdMs, smoothing) {
+  const p = peaks[channel];
+  if (!p) return;
+
+  const now = Date.now();
+
+  if (current > p.value) {
+    // New peak
+    p.value = current;
+    p.lastUpdate = now;
+  } else if (now - p.lastUpdate > holdMs) {
+    // Linear decay (instead of multiplicative smoothing)
+    p.value = Math.max(current, p.value - 2.5);
+
+    // Clamp to zero
+    if (p.value < 0.5) p.value = 0;
   }
+}
 
-  function setPeakSegment(meterEl, peak, meterId) {
-    const segments = meterEl.querySelectorAll('.segment');
-    if (!segments.length) return;
-    const prev = meterEl.querySelector('.segment.peak-flag');
-    if (prev) prev.classList.remove('peak-flag');
+function setPeakSegment(meterEl, peak, meterId) {
+  const segments = meterEl.querySelectorAll(".segment");
+  if (!segments.length) return;
 
-    const idx = Math.max(0, Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1));
-    const seg = segments[idx];
-    if (!seg) return;
+  // ✅ Remove ALL previous peak flags (not only the first one)
+  const prevAll = meterEl.querySelectorAll(".segment.peak-flag");
+  prevAll.forEach((prev) => {
+    prev.classList.remove("peak-flag");
+    // optional but safe: remove any inline styling we may have applied
+    prev.style.removeProperty("background-color");
+    prev.style.removeProperty("box-shadow");
+    prev.style.removeProperty("opacity");
+  });
 
-    seg.classList.add('peak-flag');
+  const idx = Math.max(
+    0,
+    Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1)
+  );
 
-    // Peak Color Logic
-    let peakColor = "";
-    // Apply fixed color ONLY to stereo meters if PeakMode is "fixed"
-    if (PeakMode === "fixed" && (meterId.includes('left') || meterId.includes('right'))) {
-      peakColor = PeakColorFixed;
-    } else {
-      // Dynamic Logic for ALL other cases (including HF meter)
-      if (meterId && (meterId.includes('left') || meterId.includes('right'))) {
-        peakColor = stereoColorForPercent(peak, segments.length);
-      } else if (meterId.includes('hf')) {
-         const hfThresholdIndex = Math.round((20 / 90) * segments.length);
-         if (idx < hfThresholdIndex) {
-            // Danger Zone
-            const cDanger = parseRgb(MeterColorDanger);
-            const pos = idx / hfThresholdIndex; 
-            const intensity = 0.6 + (pos * 0.4);
-            peakColor = applyIntensity(cDanger, intensity);
-         } else {
-            // Safe Zone
-            const cSafe = parseRgb(MeterColorSafe);
-            const intensity = 0.4 + ((idx / segments.length) * 0.6);
-            peakColor = applyIntensity(cSafe, intensity);
-         }
+  const seg = segments[idx];
+  if (!seg) return;
+
+  seg.classList.add("peak-flag");
+
+  // Peak Color Logic (unchanged)
+  let peakColor = "";
+
+  if (PeakMode === "fixed" && (meterId.includes("left") || meterId.includes("right"))) {
+    peakColor = PeakColorFixed;
+  } else {
+    if (meterId.includes("left") || meterId.includes("right")) {
+      peakColor = stereoColorForPercent(peak, segments.length);
+    } else if (meterId.includes("hf")) {
+      const hfThresholdIndex = Math.round((20 / 90) * segments.length);
+      if (idx < hfThresholdIndex) {
+        const cDanger = parseRgb(MeterColorDanger);
+        const pos = idx / Math.max(1, hfThresholdIndex);
+        const intensity = 0.6 + (pos * 0.4);
+        peakColor = applyIntensity(cDanger, intensity);
+      } else {
+        const cSafe = parseRgb(MeterColorSafe);
+        const intensity = 0.4 + ((idx / segments.length) * 0.6);
+        peakColor = applyIntensity(cSafe, intensity);
       }
     }
-
-    if (peakColor) {
-      seg.style.setProperty("background-color", peakColor, "important");
-    }
   }
+
+  if (peakColor) {
+    seg.style.setProperty("background-color", peakColor, "important");
+  }
+}
 
   function updateMeterById(root, meterId, level, peaks, peakCfg) {
     if (!root) return;
@@ -228,6 +243,14 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
     const cSafe = parseRgb(MeterColorSafe);
     const cWarning = parseRgb(MeterColorWarning);
 
+    // ✅ hard-reset any previous peak leftovers BEFORE painting the bar
+    segments.forEach((seg) => {
+    if (seg.classList.contains("peak-flag")) seg.classList.remove("peak-flag");
+      // remove any "important" peak color from earlier frames
+      seg.style.removeProperty("background-color");
+    });
+
+    // Paint bar normally (NO early-return for peak segments anymore)
     segments.forEach((seg, i) => {
       // Check for peak flag first
       if (seg.classList.contains("peak-flag")) return; 

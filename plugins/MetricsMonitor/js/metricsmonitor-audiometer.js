@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.3b)  //
+//  metricsmonitor-audiometer.js                    (V2.3c)  //
 //                                                           //
-//  by Highpoint               last update: 27.01.2026       //
+//  by Highpoint               last update: 29.01.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -15,21 +15,21 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 3.5;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 67.20572640407762;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 72.11538460817307;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 147.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 136.2072;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
@@ -209,13 +209,18 @@ function updatePeakValue(channel, current) {
   const now = Date.now();
 
   if (current > p.value) {
+    // New peak
     p.value = current;
     p.lastUpdate = now;
   } else if (now - p.lastUpdate > PEAK_CONFIG.holdMs) {
-    p.value = p.value * PEAK_CONFIG.smoothing;
+    // Linear decay instead of multiplicative smoothing
+    p.value = Math.max(current, p.value - 2.5);
+
+    // Clamp to zero
     if (p.value < 0.5) p.value = 0;
   }
 }
+
 
 // Calculate color with gradient logic based on CONFIG COLORS
 function stereoColorForPercent(p, totalSegments = 30) {
@@ -236,59 +241,55 @@ function stereoColorForPercent(p, totalSegments = 30) {
 }
 
 function setPeakSegment(meterEl, peak, meterId) {
-  const segments = meterEl.querySelectorAll(".segment");
+  const segments = meterEl.querySelectorAll('.segment');
   if (!segments.length) return;
 
-  const prev = meterEl.querySelector(".segment.peak-flag");
-  if (prev) prev.classList.remove("peak-flag");
+  // ✅ Clear ALL previous peak flags + remove inline peak styling
+  const prevAll = meterEl.querySelectorAll('.segment.peak-flag');
+  prevAll.forEach((prev) => {
+    prev.classList.remove('peak-flag');
+    prev.style.removeProperty("background-color");
+    prev.style.removeProperty("box-shadow");
+    prev.style.removeProperty("opacity");
+  });
 
-  const idx = Math.max(
-    0,
-    Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1)
-  );
+  const idx = Math.max(0, Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1));
   const seg = segments[idx];
   if (!seg) return;
 
-  seg.classList.add("peak-flag");
+  seg.classList.add('peak-flag');
 
-  // Determine Peak Color
+  // ... dein Peak-Color-Logic bleibt ab hier unverändert ...
   let peakColor = "";
-  const isAudioMeter = meterId && (meterId.includes("left") || meterId.includes("right") || meterId.startsWith("eq"));
-
-  if (PeakMode === "fixed" && isAudioMeter) {
+  if (PeakMode === "fixed" && (meterId.includes('left') || meterId.includes('right'))) {
     peakColor = PeakColorFixed;
   } else {
-    // Dynamic Mode
-    if (meterId && (meterId.includes("left") || meterId.includes("right"))) {
-      peakColor = stereoColorForPercent(peak, segments.length);
-    } else if (meterId && meterId.startsWith("eq")) {
-        if (idx >= segments.length - 5) {
-             peakColor = MeterColorDanger;
-        } else {
-             const cSafe = parseRgb(MeterColorSafe);
-             const intensity = 0.4 + ((idx / segments.length) * 0.6);
-             peakColor = getScaledColor(cSafe, intensity);
-        }
-    } else if (meterId.includes("hf")) {
-        const hfThresholdIndex = Math.round((20 / 90) * segments.length);
-        if (idx < hfThresholdIndex) {
-            const cDanger = parseRgb(MeterColorDanger);
-            const pos = idx / hfThresholdIndex; 
-            const intensity = 0.6 + (pos * 0.4);
-            peakColor = getScaledColor(cDanger, intensity);
-        } else {
-            const cSafe = parseRgb(MeterColorSafe);
-            const intensity = 0.4 + ((idx / segments.length) * 0.6);
-            peakColor = getScaledColor(cSafe, intensity);
-        }
+	 if (
+		meterId &&
+		(meterId.includes('left') || meterId.includes('right') || meterId.startsWith('eq'))
+	 ) {
+	   // EQ peaks should use the same meter color/gradient as stereo meters
+	   peakColor = stereoColorForPercent(peak, segments.length);
+	 } else if (meterId.includes('hf')) {
+      const hfThresholdIndex = Math.round((20 / 90) * segments.length);
+      if (idx < hfThresholdIndex) {
+        const cDanger = parseRgb(MeterColorDanger);
+        const pos = idx / hfThresholdIndex;
+        const intensity = 0.6 + (pos * 0.4);
+        peakColor = applyIntensity(cDanger, intensity);
+      } else {
+        const cSafe = parseRgb(MeterColorSafe);
+        const intensity = 0.4 + ((idx / segments.length) * 0.6);
+        peakColor = applyIntensity(cSafe, intensity);
+      }
     }
   }
 
-  // Apply Color FORCEFULLY
   if (peakColor) {
-      seg.style.setProperty("background-color", peakColor, "important");
+    seg.style.setProperty("background-color", peakColor, "important");
   }
 }
+
 
 // -------------------------------------------------------
 // Meter Creation & Updating

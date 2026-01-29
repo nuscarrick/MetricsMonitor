@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3b)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3c)   //
 //                                                              //
-//  by Highpoint                     last update: 27.01.2026    //
+//  by Highpoint                     last update: 29.01.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
