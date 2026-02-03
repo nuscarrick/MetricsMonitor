@@ -1,5 +1,5 @@
 /*
- * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.3b)
+ * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.3d)
  * 
  * Features:
  * - Asynchronous Input Thread (Ringbuffer) - Decouples Audio Input from DSP
@@ -14,14 +14,17 @@
  * - DC Blocker (Robust High-pass, < 1Hz) 
  * - ITU-R BS.412 MPX Power Measurement (60s Integration)
  * - Tilt Correction (Stabilized Linear Gain Method)
+ * - Manual/Auto MPX Channel Selection
  *
  * Compile Linux: gcc MPXCapture.c -O3 -ffast-math -lm -pthread -static -o MPXCapture
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <ctype.h>
@@ -29,6 +32,14 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
+
+// Input stream format coming from stdin (arecord pipe)
+typedef enum { INPUT_FLOAT32 = 0, INPUT_S32_LE = 1 } input_mode_t;
+static input_mode_t g_input_mode = INPUT_FLOAT32;
+
+// Channel selection mode
+typedef enum { CH_AUTO = -1, CH_LEFT = 0, CH_RIGHT = 1 } channel_mode_t;
+static channel_mode_t g_channel_mode = CH_AUTO;
 
 // Networking Headers
 #ifdef _WIN32
@@ -196,8 +207,18 @@ static void* input_thread_func(void *arg) {
     fprintf(stderr, "[MPX] Input thread started\n");
     
     while (!global_ringbuffer->shutdown) {
-        size_t read_count = fread(buf, sizeof(float), 2048 * 2, stdin);
-        
+        size_t read_count = 0;
+        if (g_input_mode == INPUT_S32_LE) {
+            int32_t ibuf[2048 * 2];
+            read_count = fread(ibuf, sizeof(int32_t), 2048 * 2, stdin);
+            if (read_count == 2048 * 2) {
+                // Convert to float [-1..1). 2147483648.0f avoids clipping at INT32_MIN.
+                const float inv = 1.0f / 2147483648.0f;
+                for (size_t i = 0; i < 2048 * 2; i++) buf[i] = (float)ibuf[i] * inv;
+            }
+        } else {
+            read_count = fread(buf, sizeof(float), 2048 * 2, stdin);
+        }
         if (read_count != 2048 * 2) {
             if (feof(stdin)) {
                 fprintf(stderr, "[MPX] Input EOF reached\n");
@@ -420,13 +441,35 @@ static int get_json_int(const char* json, const char* key, int currentVal) {
     return (int)lroundf(f);
 }
 
-static void update_config(void) {
-    if (strlen(G_ConfigPath) == 0) return;
+// Helper to find string values roughly
+static void get_json_channel_mode(const char* json) {
+    if (!json) return;
+    const char* key = "\"MPXChannel\"";
+    char* pos = strstr((char*)json, key);
+    if (!pos) {
+        // Default if not present
+        return; 
+    }
+    pos += strlen(key);
+    while (*pos && (isspace((unsigned char)*pos) || *pos == ':')) pos++;
+    
+    // Check next few chars
+    if (strncasecmp(pos, "\"left\"", 6) == 0) {
+        g_channel_mode = CH_LEFT;
+    } else if (strncasecmp(pos, "\"right\"", 7) == 0) {
+        g_channel_mode = CH_RIGHT;
+    } else if (strncasecmp(pos, "\"auto\"", 6) == 0) {
+        g_channel_mode = CH_AUTO;
+    }
+}
+
+static int update_config(void) {
+    if (strlen(G_ConfigPath) == 0) return 0;
 
     struct stat attr;
-    if (stat(G_ConfigPath, &attr) != 0) return;
+    if (stat(G_ConfigPath, &attr) != 0) return 0;
 
-    if (G_LastConfigModTime != 0 && attr.st_mtime == G_LastConfigModTime) return;
+    if (G_LastConfigModTime != 0 && attr.st_mtime == G_LastConfigModTime) return 0;
     G_LastConfigModTime = attr.st_mtime;
 
     char *string = NULL;
@@ -436,7 +479,7 @@ static void update_config(void) {
         if (string) { free(string); string = NULL; }
         sleep_ms(50);
     }
-    if (!string) return;
+    if (!string) return 0;
 
     float mGain = get_json_float(string, "MeterInputCalibration", -9999.0f);
     if (mGain > -9000.0f) {
@@ -469,14 +512,21 @@ static void update_config(void) {
     if (tpf == 8 || tpf == 4) G_TruePeakFactor = tpf;
 
     G_EnableMpxLpf = get_json_int(string, "MPX_LPF_100kHz", G_EnableMpxLpf) ? 1 : 0;
+    
+    // Channel Mode
+    channel_mode_t oldMode = g_channel_mode;
+    get_json_channel_mode(string);
+    int modeChanged = (oldMode != g_channel_mode);
 
     if (G_SpectrumAttack > 1.0f) G_SpectrumAttack = 1.0f; 
     if (G_SpectrumAttack < 0.01f) G_SpectrumAttack = 0.01f;
     if (G_SpectrumDecay > 1.0f) G_SpectrumDecay = 1.0f; 
     if (G_SpectrumDecay < 0.01f) G_SpectrumDecay = 0.01f;
 
-    fprintf(stderr, "[MPX-C] Config updated\n");
+    fprintf(stderr, "[MPX-C] Config updated. Mode: %d\n", (int)g_channel_mode);
     free(string);
+    
+    return modeChanged;
 }
 
 /* ============================================================
@@ -771,6 +821,16 @@ int main(int argc, char **argv)
 
     if (argc >= 2) sr = atoi(argv[1]);
     const char *devName = (argc >= 3 && argv[2]) ? argv[2] : "Default";
+    // argv[2] is used as an "input format" selector by the server pipe.
+    // Supported: "float" (default), "s32" (signed 32-bit little endian).
+    if (devName) {
+        if (!strcasecmp(devName, "s32") || !strcasecmp(devName, "s32_le") || !strcasecmp(devName, "s32le")) {
+            g_input_mode = INPUT_S32_LE;
+        } else if (!strcasecmp(devName, "float") || !strcasecmp(devName, "float_le") || !strcasecmp(devName, "f32")) {
+            g_input_mode = INPUT_FLOAT32;
+        }
+    }
+
     if (argc >= 4) fftSize = atoi(argv[3]);
     if (!is_power_of_two(fftSize) || fftSize < 512) fftSize = 4096;
 
@@ -888,7 +948,14 @@ int main(int argc, char **argv)
 
         configCheckCounter++;
         if (configCheckCounter > 50) {
-            update_config();
+            int modeChanged = update_config();
+            if (modeChanged) {
+                 // Reset channel detection if mode changed (e.g. from Auto -> Left, or Left -> Auto)
+                 channel_locked = 0;
+                 energy_samples = 0;
+                 energyL = 0; energyR = 0;
+            }
+            
             Tilt_Update(&tilt, G_MPXTiltCalibrationUs);
             outputSampleThreshold = (sr * G_SpectrumSendInterval) / 1000;
             configCheckCounter = 0;
@@ -897,13 +964,23 @@ int main(int argc, char **argv)
         for (int i = 0; i < 2048; i++) {
             float vL = in[i*2], vR = in[i*2+1];
 
-            if (!channel_locked) {
-                energyL += vL*vL; 
-                energyR += vR*vR; 
-                energy_samples++;
-                if (energy_samples >= 4096) { 
-                    active_channel = (energyR > energyL * 1.5) ? 1 : 0; 
-                    channel_locked = 1; 
+            // Channel Selection Logic
+            if (g_channel_mode == CH_LEFT) {
+                active_channel = 0;
+                channel_locked = 1;
+            } else if (g_channel_mode == CH_RIGHT) {
+                active_channel = 1;
+                channel_locked = 1;
+            } else {
+                // Auto Mode
+                if (!channel_locked) {
+                    energyL += vL*vL; 
+                    energyR += vR*vR; 
+                    energy_samples++;
+                    if (energy_samples >= 4096) { 
+                        active_channel = (energyR > energyL * 1.5) ? 1 : 0; 
+                        channel_locked = 1; 
+                    }
                 }
             }
 

@@ -1,5 +1,5 @@
 ﻿/*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.3b)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.3d)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
@@ -13,6 +13,7 @@
  * - ITU-R BS.412 MPX Power Measurement (60s Integration)
  * - Tilt Correction (Stabilized Linear Gain Method)
  * - Decoupled Spectrum/Meter Calibration
+ * - Manual/Auto MPX Channel Selection
  *
  * Compile Windows (x64/x86):
  * dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
@@ -34,59 +35,75 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 // ====================================================================================
-//  GLOBAL CONFIGURATION CLASS
+//  GLOBAL CONFIGURATION CLASS (Thread-Safe Wrapper)
 // ====================================================================================
 public static class Config
 {
     // Independent Calibrations (dB)
-    public static float MeterInputCalibrationDB = 0.0f;
-    public static float SpectrumInputCalibrationDB = 0.0f;
-    
-    public static float MPXTiltCalibration = 0.0f; 
+    public static volatile float MeterInputCalibrationDB = 0.0f;
+    public static volatile float SpectrumInputCalibrationDB = 0.0f;
+    public static volatile float MPXTiltCalibration = 0.0f; 
     
     // Calculated Linear Gains
-    public static float MeterGain = 1.0f;
-    public static float SpectrumGain = 1.0f;
+    public static volatile float MeterGain = 1.0f;
+    public static volatile float SpectrumGain = 1.0f;
 
-    // Scaling Factors (Visualization)
-    public static float MeterPilotScale = 1.0f; 
-    public static float MeterMPXScale = 100.0f;
-    public static float MeterRDSScale = 1.0f;
+    // Scaling Factors
+    public static volatile float MeterPilotScale = 1.0f; 
+    public static volatile float MeterMPXScale = 100.0f;
+    public static volatile float MeterRDSScale = 1.0f;
 
     // Visual Dynamics
-    public static float SpectrumAttack = 0.25f;
-    public static float SpectrumDecay = 0.15f;
-    public static int SpectrumSendInterval = 30; 
+    public static volatile float SpectrumAttack = 0.25f;
+    public static volatile float SpectrumDecay = 0.15f;
+    public static volatile int SpectrumSendInterval = 30; 
 
     // Processing Options
-    public static int TruePeakFactor = 8;
-    public static int MPX_LPF_100kHz = 1;
+    public static volatile int TruePeakFactor = 8;
+    public static volatile int MPX_LPF_100kHz = 1;
+    
+    // Channel Selection
+    public static volatile string MPXChannel = "auto"; // "auto", "left", "right"
 
-    // State Control - SEPARATE FLAGS MATCHING C VERSION
+    // State Control
     public static volatile bool EnableSpectrum = false; 
     public static volatile bool EnableScope = false;
 
     private static string _configPath = "metricsmonitor.json";
     private static DateTime _lastModTime;
+    
+    // Indicates if config reload changed critical parameters
+    public static volatile bool ChannelConfigChanged = false;
 
     public static void Init(string path)
     {
         if (!string.IsNullOrWhiteSpace(path)) 
             _configPath = path.Trim().Trim('"');
-        Update(force: true);
+        
+        // Initial load (blocking is fine here)
+        LoadFromFile();
+
+        // Start Background Watcher
+        Task.Run(async () => {
+            while (true) {
+                await Task.Delay(2000); // Check every 2 seconds
+                LoadFromFile();
+            }
+        });
     }
 
-    public static void Update(bool force = false)
+    private static void LoadFromFile()
     {
         if (!File.Exists(_configPath)) return;
 
         try
         {
             DateTime mod = File.GetLastWriteTime(_configPath);
-            if (!force && mod == _lastModTime) return;
+            if (mod == _lastModTime) return;
             _lastModTime = mod;
 
             string jsonString = "";
+            // Retry logic in case file is locked
             for (int i = 0; i < 5; i++) {
                 try {
                     using (var fs = new FileStream(_configPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -114,6 +131,13 @@ public static class Config
                 int GetInt(string k, int def) {
                     float f = GetFloat(k, def);
                     return (int)MathF.Round(f);
+                }
+                
+                string GetString(string k, string def) {
+                     if (root.TryGetProperty(k, out var e)) {
+                        if (e.ValueKind == JsonValueKind.String) return e.GetString();
+                     }
+                     return def;
                 }
 
                 float mGainDB = GetFloat("MeterInputCalibration", -9999f);
@@ -147,12 +171,15 @@ public static class Config
                 if (tpf == 4 || tpf == 8) TruePeakFactor = tpf;
 
                 MPX_LPF_100kHz = GetInt("MPX_LPF_100kHz", MPX_LPF_100kHz) != 0 ? 1 : 0;
+                
+                string newChannel = GetString("MPXChannel", MPXChannel).ToLowerInvariant();
+                if (newChannel != MPXChannel) {
+                    MPXChannel = newChannel;
+                    ChannelConfigChanged = true;
+                }
             }
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[MPX] Config Parse Error: {ex.Message}");
-        }
+        catch { /* Ignore read errors in background loop */ }
     }
 }
 
@@ -289,7 +316,7 @@ public class BiQuadFilter
 public class DCBlocker
 {
     private float x1; private float y1; private readonly float R;
-    public DCBlocker() { x1 = 0f; y1 = 0f; R = 0.99995f; } // < 1Hz cutoff
+    public DCBlocker() { x1 = 0f; y1 = 0f; R = 0.99995f; }
 
     public float Process(float x)
     {
@@ -466,7 +493,7 @@ class Program
         
         StartUdpListener(udpPort);
 
-        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}' UDP:{udpPort}");
+        Console.Error.WriteLine($"[MPX] C# Init RequestedSR:{requestedSr} FFT:{fftSize} Dev:'{devName}' UDP:{udpPort} (Optimized)");
 
         var enumerator = new MMDeviceEnumerator();
         MMDevice device = null;
@@ -479,7 +506,8 @@ class Program
         try
         {
             var requestedFormat = WaveFormat.CreateIeeeFloatWaveFormat(requestedSr, 2);
-            var capture = new WasapiCapture(device, false, 20); 
+            // CRITICAL CHANGE: INCREASED LATENCY TO 60ms TO PREVENT BUFFER OVERRUNS
+            var capture = new WasapiCapture(device, false, 60); 
 
             try { capture.WaveFormat = requestedFormat; }
             catch { Console.Error.WriteLine($"[MPX] WARNING: Could not set {requestedSr} Hz; using device default."); }
@@ -517,8 +545,7 @@ class Program
 
             var dcBlocker = new DCBlocker();
             var tiltCorrector = new TiltCorrector((float)sr);
-            tiltCorrector.Update(Config.MPXTiltCalibration);
-
+            
             const float BS412_REF_POWER = 180.5f;
             float bs412_power = 0.0f;
             float bs412_alpha = DspUtils.ExpAlphaFromTau(sr, 60.0f);
@@ -541,7 +568,6 @@ class Program
             int energySamples = 0;
 
             int samplesSinceLastOutput = 0;
-            int configTick = 0;
             int outputThresh = (sr * Config.SpectrumSendInterval) / 1000;
 
             float smoothP = 0f; float smoothR = 0f; float smoothB = -99f;
@@ -549,21 +575,31 @@ class Program
             double resampleRatio = (requestedSr > 0) ? ((double)actualSr / requestedSr) : 1.0;
             bool doDecimate = (actualSr != requestedSr && requestedSr > 0 && actualSr > requestedSr);
 
+            // Reusable StringBuilder to avoid GC churn
+            StringBuilder sb = new StringBuilder(4096);
+
             capture.DataAvailable += (s, e) =>
             {
-                if (configTick++ > 40) {
-                    Config.Update();
-                    tiltCorrector.Update(Config.MPXTiltCalibration); 
-                    configTick = 0;
-                    outputThresh = (sr * Config.SpectrumSendInterval) / 1000;
+                // Check if config changed and reset states if necessary
+                if (Config.ChannelConfigChanged) {
+                    channelLocked = false;
+                    energySamples = 0;
+                    energyL = 0; energyR = 0;
+                    Config.ChannelConfigChanged = false;
+                    Console.Error.WriteLine($"[MPX] Channel Config Changed -> Resetting detection. New mode: {Config.MPXChannel}");
                 }
+                
+                // Removed Blocking Config.Update() from here!
+                // It now happens in background. Just update tilt param cleanly:
+                tiltCorrector.Update(Config.MPXTiltCalibration);
+                outputThresh = (sr * Config.SpectrumSendInterval) / 1000;
 
                 int frameSize = channels * bytesPerSample;
                 int frames = e.BytesRecorded / frameSize;
 
-                // Capture separate flags
                 bool enableSpectrum = Config.EnableSpectrum;
                 bool enableScope = Config.EnableScope;
+                string channelMode = Config.MPXChannel; // "auto", "left", "right"
 
                 for (int i = 0; i < frames; i++)
                 {
@@ -581,11 +617,21 @@ class Program
                         resamplePhase -= resampleRatio;
                     }
 
-                    if (!channelLocked) {
-                        energyL += vL * vL; energyR += vR * vR; energySamples++;
-                        if (energySamples >= 8192) {
-                            activeChannel = (energyR > energyL * 4.0) ? 1 : 0;
-                            channelLocked = true;
+                    // Channel Logic
+                    if (channelMode == "left") {
+                        activeChannel = 0;
+                        channelLocked = true;
+                    } else if (channelMode == "right") {
+                        activeChannel = 1;
+                        channelLocked = true;
+                    } else {
+                        // AUTO mode
+                        if (!channelLocked) {
+                            energyL += vL * vL; energyR += vR * vR; energySamples++;
+                            if (energySamples >= 8192) {
+                                activeChannel = (energyR > energyL * 4.0) ? 1 : 0;
+                                channelLocked = true;
+                            }
                         }
                     }
 
@@ -622,10 +668,6 @@ class Program
                     float rKhz = demod.RdsMag * Config.MeterRDSScale;
                     if (smoothR == 0f) smoothR = rKhz; else smoothR = (smoothR * 0.9f) + (rKhz * 0.1f);
 
-                    // ===========================================================================
-                    //  CONDITIONAL PROCESSING (Separated)
-                    // ===========================================================================
-                    
                     // === SPECTRUM ===
                     if (enableSpectrum) 
                     {
@@ -633,22 +675,9 @@ class Program
                             fftBuffer[fftIndex] = new Complex(vSpecCalibrated * window[fftIndex], 0);
                             fftIndex++;
                         } else {
-                            // Don't process FFT here inside the loop for every sample if full
-                            // Wait for Output block to clear it (C logic: QuickFFT inside printf check)
-                            // But in C# structure we usually do it when buffer fills.
-                            // To match C exactly: 
-                            // C logic: fills buf, then inside output block: calculates FFT, prints, resets index.
-                            // Here we just keep filling or hold.
-                            // Better C# approach keeping flow:
-                            // We will process FFT at output time to be safe or process here and buffer.
-                            // Let's stick to C# existing flow: Buffer fill -> Process -> Smooth.
                             QuickFFT.Compute(fftBuffer);
                             for (int k = 0; k < fftSize / 2; k++) {
                                 float mag = (float)fftBuffer[k].Magnitude;
-                                // In C: float linearAmp = (mag * 2.0f) / (float)fftSize; 
-                                // then smooth = smooth * (1-a) + lin * a
-                                // C# magnitude is already linear amplitude of bin? QuickFFT?
-                                // Let's keep existing C# smoothing but note C uses * 15.0f at output
                                 if (mag > smoothSpectrum[k]) smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumAttack)) + (mag * Config.SpectrumAttack);
                                 else smoothSpectrum[k] = (smoothSpectrum[k] * (1f - Config.SpectrumDecay)) + (mag * Config.SpectrumDecay);
                             }
@@ -660,7 +689,6 @@ class Program
                     if (enableScope)
                     {
                         float scopeInput = vTilt; 
-
                         if (Math.Abs(scopeInput) < SILENCE_THRES) {
                             if (silenceSampleCount < MIN_SILENCE_SAMPLES + 100) silenceSampleCount++;
                             if (silenceSampleCount >= MIN_SILENCE_SAMPLES) isBurstMode = true; 
@@ -700,12 +728,11 @@ class Program
                     // --- Output JSON ---
                     if (++samplesSinceLastOutput >= outputThresh) {
                         samplesSinceLastOutput = 0;
-                        var sb = new StringBuilder();
+                        sb.Clear();
                         sb.Append("{\"s\":[");
                         
                         if (enableSpectrum) {
                             for (int k = 0; k < fftSize / 2; k++) {
-                                // C multiplies by 15.0f for display scaling
                                 sb.Append((smoothSpectrum[k] * 1.0f).ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < (fftSize / 2) - 1) sb.Append(",");
                             }
@@ -753,7 +780,6 @@ class Program
                     var result = await udp.ReceiveAsync();
                     string command = Encoding.UTF8.GetString(result.Buffer).Trim();
                     
-                    // Separate Logic for Spectrum
                     if (command.Contains("SPECTRUM=1")) 
                     {
                         if (!Config.EnableSpectrum) {
@@ -769,7 +795,6 @@ class Program
                         }
                     }
                     
-                    // Separate Logic for Scope
                     if (command.Contains("SCOPE=1")) 
                     {
                         if (!Config.EnableScope) {
