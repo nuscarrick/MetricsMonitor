@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3c)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3d)   //
 //                                                              //
-//  by Highpoint                     last update: 29.01.2026    //
+//  by Highpoint                     last update: 03.02.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -54,6 +54,7 @@ const defaultConfig = {
   // 1. Audio & MPX Hardware Settings
   sampleRate: 48000,            // The sample rate for capture (Hz)
   MPXmode: "off",               // Mode switch (off/auto/on)
+  MPXChannel: "auto",           // Channel selection (auto/left/right) - NEW
   MPXStereoDecoder: "off",      // Internal stereo decoder switch
   MPXInputCard: "",             // Input device name (if empty, uses config.json device)
   MPXTiltCalibration: 0.0,    // NEW: Tilt Correction in microseconds (0 = off)
@@ -197,6 +198,7 @@ function normalizePluginConfig(json) {
 
     sampleRate: typeof json.sampleRate !== "undefined" ? json.sampleRate : defaultConfig.sampleRate,
     MPXmode: typeof json.MPXmode !== "undefined" ? json.MPXmode : defaultConfig.MPXmode,
+    MPXChannel: typeof json.MPXChannel !== "undefined" ? json.MPXChannel : defaultConfig.MPXChannel, // NEW
     MPXStereoDecoder: typeof json.MPXStereoDecoder !== "undefined" ? json.MPXStereoDecoder : defaultConfig.MPXStereoDecoder,
     MPXInputCard: typeof json.MPXInputCard !== "undefined" ? json.MPXInputCard : defaultConfig.MPXInputCard,
     MPXTiltCalibration: typeof json.MPXTiltCalibration !== "undefined" ? json.MPXTiltCalibration : defaultConfig.MPXTiltCalibration,
@@ -345,6 +347,7 @@ let SPECTRUM_GAIN_FACTOR;
 let SPECTRUM_ATTACK_LEVEL;
 let SPECTRUM_DECAY_LEVEL;
 let MPX_MODE;
+let MPX_CHANNEL; // NEW
 let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
 let LOCK_VOLUME_SLIDER;
@@ -408,6 +411,7 @@ function applyConfig(newConfig) {
     SPECTRUM_DECAY_LEVEL = Number(configPlugin.SpectrumDecayLevel) || 15;
     
     MPX_MODE = String(configPlugin.MPXmode || "auto").toLowerCase();
+    MPX_CHANNEL = String(configPlugin.MPXChannel || "auto").toLowerCase(); // NEW
     MPX_STEREO_DECODER = String(configPlugin.MPXStereoDecoder || "off").toLowerCase();
     
     MPX_INPUT_CARD = String(configPlugin.MPXInputCard || "").replace(/^["'](.*)["']$/, "$1").trim();
@@ -439,7 +443,7 @@ function applyConfig(newConfig) {
     ENABLE_MPX = isModule2Active; 
     ENABLE_ANALYZER = ENABLE_MPX;
 
-    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us`);
+    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | MPXChannel: ${MPX_CHANNEL}`);
 }
 
 /**
@@ -1144,6 +1148,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     `[MPX] SpectrumSendInterval from metricsmonitor.json ? ${SPECTRUM_SEND_INTERVAL} ms`
   );
   logInfo(`[MPX] MPXmode from metricsmonitor.json ? ${MPX_MODE}`);
+  logInfo(`[MPX] MPXChannel from metricsmonitor.json ? ${MPX_CHANNEL}`);
   logInfo(
     `[MPX] MPXStereoDecoder from metricsmonitor.json ? ${MPX_STEREO_DECODER}`
   );
@@ -1442,23 +1447,45 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
         /* =====================================================
            LINUX: Pipe via Arecord -> Stdin
            ===================================================== */
-        } else {
-			
-            const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
-            const safeDevice = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+} else {
 
-            logInfo(`[MPX] Spawning Linux Binary (Pipe Mode) | Dev="${safeDevice}"`);           
-           
-rec = spawn("bash", ["-c", `
-    ALSA_CARD="sndrpihifiberry" arecord -F 25000 -D "${safeDevice}" \
-    -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
-    -t raw -q \
-    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
-`], {
+  const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
+
+  let safeDevice =
+    (targetDevice && String(targetDevice).trim().length > 0 && String(targetDevice).trim() !== "Default")
+      ? String(targetDevice).trim()
+      : "hw:3,0";
+
+  const AREC_BUFFER_SIZE = 262144;
+  const AREC_PERIOD_SIZE = 65536;
+  const USE_MMAP = true;
+
+  const CPU_ARECORD = 2;
+  const CPU_MPXCAP  = 3;
+
+  logInfo(
+    `[MPX] Spawning Linux Binary (Pipe Mode) | Dev="${safeDevice}" | fmt=S32_LE SR=${SAMPLE_RATE} FFT=${FFT_SIZE} ` +
+    `B=${AREC_BUFFER_SIZE} P=${AREC_PERIOD_SIZE} mmap=${USE_MMAP ? "on" : "off"} ` +
+    `pin arecord@cpu${CPU_ARECORD} MPX@cpu${CPU_MPXCAP}`
+  );
+
+  rec = spawn("bash", ["-c", `
+    taskset -c ${CPU_ARECORD} arecord -D "${safeDevice}" \
+      -c2 -r ${SAMPLE_RATE} -f S32_LE \
+      -t raw -q \
+      ${USE_MMAP ? "--mmap" : ""} \
+      --buffer-size ${AREC_BUFFER_SIZE} --period-size ${AREC_PERIOD_SIZE} \
+    | taskset -c ${CPU_MPXCAP} "${MPX_EXE_PATH}" \
+      ${SAMPLE_RATE} "s32" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
+  `], {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, ALSA_CARD: "sndrpihifiberry" }
-});
-        }
+  });
+
+}
+
+
+
 
         /* =====================================================
            STDERR & STDOUT Handling

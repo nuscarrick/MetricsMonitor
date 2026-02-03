@@ -4,9 +4,9 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.3c
-- Alignment of scale values ​​adjusted
-- Remove duplicate peak displays
+## v2.3d
+- Channel selection added for the MPX signal (left, right or auto)
+
 
 ## Important note for this version: 
 
@@ -58,6 +58,7 @@ The following variables can be changed in the metricsmonitor.json config file:
     /* Audio & MPX Hardware Settings */	
     "sampleRate": 48000,             //  Enter the supported sample rate of the input audio card here: 48000 for displaying the FM audio spectrum / 96000 for displaying the FM baseband and 192000 for the MPX spectrum. The default is 48000.
     "MPXmode": "off",                //  Configure the MPX behavior of the TEF receiver here: "off" = no MPX output / "on" = always MPX output / "auto" = MPX automatic switching (equalizer and signal meter module in stereo - PILOT/MPX/RDS meter module in mono - spectrum analyzer in mono)
+	"MPXChannel": "auto",            //  Set the fixed channel for the MPX signal here if necessary ("left" or "right", "auto" is default)
     "MPXStereoDecoder": "off",	     //  Set the switch to "on" if you are decoding the stereo signal from MPX with a stereo decoder. This will enable the optical mono/stereo indicator to function when MPXmode is set to "on". The default setting is "off".          
     "MPXInputCard": "",              //  Configure the sound input exclusive to MPX (e.g., for Linux: "plughw:CARD=Device" or Windows: "Microphone (HD USB Audio Device)")
     "MPXTiltCalibration": 0,         //  Adjust the input slope of the sound card from -1000 µs to 1000 µs (default is 0)
@@ -159,6 +160,10 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.3c
+- Alignment of scale values ​​adjusted
+- Remove duplicate peak displays
 
 ### v2.3b
 - Oscilloscope and spectrum analyzer treated separately for resource reasons -> reduction of CPU and network load

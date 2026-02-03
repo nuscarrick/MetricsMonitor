@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.3c)   //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.3d)   //
 //                                                             //
-//  by Highpoint               last update: 29.01.2026         //
+//  by Highpoint               last update: 03.02.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -21,8 +21,8 @@ const MeterInputCalibration = -0.4;    // Do not touch - this value is automatic
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 147.857176;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 136.2072;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
@@ -43,7 +43,7 @@ const PeakMode = "dynamic";    // Do not touch - this value is automatically upd
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.3c";
+  const plugin_version = "2.3d";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
