@@ -11,7 +11,7 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 ## Important note for this version: 
 
 To use the MPX switching option with an ESP32 TEF receiver, this firmware version must be installed:
-https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF6686_ESP32_Dev_Beta_%20v2.20.5.zip
+https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF6686_ESP32_Dev_Beta_%20v2.20.6.zip
 
 ## Installation notes
 
