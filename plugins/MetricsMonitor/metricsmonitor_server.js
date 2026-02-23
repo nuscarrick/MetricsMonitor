@@ -1,11 +1,12 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.3d)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.4)    //
 //                                                              //
-//  by Highpoint                     last update: 03.02.2026    //
+//  by Highpoint                     last update: 23.02.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
+//  GOR and Bojcha                                              //
 //                                                              //
 //  https://github.com/Highpoint2000/metricsmonitor             //
 //                                                              //
@@ -54,10 +55,11 @@ const defaultConfig = {
   // 1. Audio & MPX Hardware Settings
   sampleRate: 48000,            // The sample rate for capture (Hz)
   MPXmode: "off",               // Mode switch (off/auto/on)
-  MPXChannel: "auto",           // Channel selection (auto/left/right) - NEW
+  MPXChannel: "auto",           // Channel selection (auto/left/right)
   MPXStereoDecoder: "off",      // Internal stereo decoder switch
   MPXInputCard: "",             // Input device name (if empty, uses config.json device)
-  MPXTiltCalibration: 0.0,    // NEW: Tilt Correction in microseconds (0 = off)
+  MPXTiltCalibration: 0.0,      // Tilt Correction in microseconds (0 = off)
+  VisualDelayMs: 250,           // Delay for visual synchronization in ms
 
   // 2. Calibration Offsets (Meters)
   MeterInputCalibration: 0.0,
@@ -198,10 +200,11 @@ function normalizePluginConfig(json) {
 
     sampleRate: typeof json.sampleRate !== "undefined" ? json.sampleRate : defaultConfig.sampleRate,
     MPXmode: typeof json.MPXmode !== "undefined" ? json.MPXmode : defaultConfig.MPXmode,
-    MPXChannel: typeof json.MPXChannel !== "undefined" ? json.MPXChannel : defaultConfig.MPXChannel, // NEW
+    MPXChannel: typeof json.MPXChannel !== "undefined" ? json.MPXChannel : defaultConfig.MPXChannel,
     MPXStereoDecoder: typeof json.MPXStereoDecoder !== "undefined" ? json.MPXStereoDecoder : defaultConfig.MPXStereoDecoder,
     MPXInputCard: typeof json.MPXInputCard !== "undefined" ? json.MPXInputCard : defaultConfig.MPXInputCard,
     MPXTiltCalibration: typeof json.MPXTiltCalibration !== "undefined" ? json.MPXTiltCalibration : defaultConfig.MPXTiltCalibration,
+    VisualDelayMs: typeof json.VisualDelayMs !== "undefined" ? json.VisualDelayMs : defaultConfig.VisualDelayMs,
 
     MeterInputCalibration: typeof json.MeterInputCalibration !== "undefined" ? json.MeterInputCalibration : defaultConfig.MeterInputCalibration,
     MeterPilotCalibration: typeof json.MeterPilotCalibration !== "undefined" ? json.MeterPilotCalibration : defaultConfig.MeterPilotCalibration,
@@ -347,13 +350,14 @@ let SPECTRUM_GAIN_FACTOR;
 let SPECTRUM_ATTACK_LEVEL;
 let SPECTRUM_DECAY_LEVEL;
 let MPX_MODE;
-let MPX_CHANNEL; // NEW
+let MPX_CHANNEL;
 let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
 let LOCK_VOLUME_SLIDER;
 let ENABLE_SPECTRUM_ON_LOAD;
 let ENABLE_ANALYZER_ADMIN_MODE;
 let MPX_TILT_CALIBRATION;
+let VISUAL_DELAY_MS; // NEW
 
 // Calibrations
 let METER_PILOT_CALIBRATION;
@@ -404,6 +408,8 @@ function applyConfig(newConfig) {
     METER_INPUT_CALIBRATION_DB = Number(configPlugin.MeterInputCalibration) || 0;
     METER_GAIN_FACTOR = Math.pow(10, METER_INPUT_CALIBRATION_DB / 20.0);  
     MPX_TILT_CALIBRATION = Number(configPlugin.MPXTiltCalibration) || 0.0;
+    VISUAL_DELAY_MS = Number(configPlugin.VisualDelayMs);
+    if (isNaN(VISUAL_DELAY_MS) || VISUAL_DELAY_MS < 0) VISUAL_DELAY_MS = 250;
 
     SPECTRUM_INPUT_CALIBRATION_DB = Number(configPlugin.SpectrumInputCalibration) || 0;
     SPECTRUM_GAIN_FACTOR = Math.pow(10, SPECTRUM_INPUT_CALIBRATION_DB / 20.0);
@@ -411,7 +417,7 @@ function applyConfig(newConfig) {
     SPECTRUM_DECAY_LEVEL = Number(configPlugin.SpectrumDecayLevel) || 15;
     
     MPX_MODE = String(configPlugin.MPXmode || "auto").toLowerCase();
-    MPX_CHANNEL = String(configPlugin.MPXChannel || "auto").toLowerCase(); // NEW
+    MPX_CHANNEL = String(configPlugin.MPXChannel || "auto").toLowerCase();
     MPX_STEREO_DECODER = String(configPlugin.MPXStereoDecoder || "off").toLowerCase();
     
     MPX_INPUT_CARD = String(configPlugin.MPXInputCard || "").replace(/^["'](.*)["']$/, "$1").trim();
@@ -443,7 +449,7 @@ function applyConfig(newConfig) {
     ENABLE_MPX = isModule2Active; 
     ENABLE_ANALYZER = ENABLE_MPX;
 
-    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | MPXChannel: ${MPX_CHANNEL}`);
+    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | Delay: ${VISUAL_DELAY_MS}ms | MPXChannel: ${MPX_CHANNEL}`);
 }
 
 /**
@@ -621,6 +627,7 @@ function updateSettings() {
           `const MPXStereoDecoder = "${MPX_STEREO_DECODER}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXInputCard = "${MPX_INPUT_CARD}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXTiltCalibration = ${MPX_TILT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const VisualDelayMs = ${VISUAL_DELAY_MS};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterInputCalibration = ${METER_INPUT_CALIBRATION_DB};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterPilotCalibration = ${METER_PILOT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterMPXCalibration = ${METER_MPX_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -676,7 +683,8 @@ function updateSettings() {
         .replace(/^\s*const\s+StereoBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+AudioMeterBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterInputCalibration\s*=.*;[^\n]*\n?/gm, "")
-        .replace(/^\s*const\s+MPXTiltCalibration\s*=.*;[^\n]*\n?/gm, "") // NEW
+        .replace(/^\s*const\s+MPXTiltCalibration\s*=.*;[^\n]*\n?/gm, "") 
+        .replace(/^\s*const\s+VisualDelayMs\s*=.*;[^\n]*\n?/gm, "") // NEW
         .replace(/^\s*const\s+MeterPilotCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterMPXCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterRDSCalibration\s*=.*;[^\n]*\n?/gm, "")
@@ -838,7 +846,6 @@ function updateSettings() {
         return out;
     }
 
-    // BUG FIX: Define this helper function *before* it is used.
     function updateClientFile(filePath, label, modifyFn) {
         try {
             const data = fs.readFileSync(filePath, "utf8");
@@ -1242,7 +1249,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   const UDP_CONTROL_PORT = 60001; // Port on which C# process will listen
 
   logInfo(
-    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain, Tilt Correction)."
+    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain, Tilt Correction, Server Visual Sync)."
   );
 
   // ====================================================================================
@@ -1309,7 +1316,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
                 if (msg.cmd === "spectrum_heartbeat") {
                     lastSpectrumHeartbeat = Date.now();
                 }
-                // NEW: Scope heartbeat
+                // Scope heartbeat
                 if (msg.cmd === "scope_heartbeat") {
                     lastScopeHeartbeat = Date.now();
                 }
@@ -1533,7 +1540,7 @@ setInterval(() => {
 }, 1000);
 
 // ====================================================================================
-//  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling)
+//  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling + Visual Delay Buffer)
 // ====================================================================================
 
 if (typeof global.mpxPeakState === 'undefined') {
@@ -1544,9 +1551,16 @@ if (typeof global.mpxPeakState === 'undefined') {
   global.logThrottle = 0;
 }
 
+// Global queue to buffer WebSocket messages for audio-visual synchronization
+const wsMessageQueue = [];
+
 setInterval(() => {
     // 1. Check WebSocket connection
-    if (!dataPluginsWs || dataPluginsWs.readyState !== WebSocket.OPEN) return;
+    if (!dataPluginsWs || dataPluginsWs.readyState !== WebSocket.OPEN) {
+        // Clear the queue to prevent a massive backlog burst upon reconnection
+        wsMessageQueue.length = 0; 
+        return;
+    }
     
     // 2. Check Backpressure
     if (dataPluginsWs.bufferedAmount > MAX_WS_BACKLOG_BYTES) {
@@ -1635,7 +1649,7 @@ setInterval(() => {
     }
 
     // -----------------------------------------------------------------------
-    // SEND TO CLIENT
+    // BUILD PAYLOAD
     // -----------------------------------------------------------------------
     // Send both Spectrum (value) and Scope (scope) arrays
     // Note: These might be empty arrays if spectrumIsActive is false
@@ -1655,7 +1669,21 @@ setInterval(() => {
       snr: (valN > 1e-6) ? (valP / valN) : 0
     });
 
-    dataPluginsWs.send(payload, () => {});
+    // -----------------------------------------------------------------------
+    // SERVER-SIDE AUDIO-VISUAL SYNCHRONIZATION QUEUE
+    // -----------------------------------------------------------------------
+    const now = Date.now();
+    wsMessageQueue.push({ time: now, payload: payload });
+
+    // Process the queue and send out payloads that have surpassed the specified VisualDelayMs
+    while (wsMessageQueue.length > 0 && (now - wsMessageQueue[0].time) >= VISUAL_DELAY_MS) {
+        const item = wsMessageQueue.shift();
+        
+        // Final safety check just in case the connection state changed during the loop
+        if (dataPluginsWs && dataPluginsWs.readyState === WebSocket.OPEN) {
+            dataPluginsWs.send(item.payload, () => {});
+        }
+    }
 
 }, SPECTRUM_SEND_INTERVAL);
   

@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.3d)  //
+//  metricsmonitor-analyzer.js                      (V2.4)   //
 //                                                           //
-//  by Highpoint               last update: 03.02.2026       //
+//  by Highpoint               last update: 23.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //
@@ -15,8 +16,9 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -29,9 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -429,13 +431,13 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     tooltipElement.id = `mpx-zoom-tooltip-${instanceKey}`;
     tooltipElement.innerHTML = `
       <div style="margin-bottom: 5px; font-weight: bold;">Zoom Controls</div>
-      <div style="margin-bottom: 4px;">â€¢ Scroll wheel: Horizontal zoom</div>
-      <div style="margin-bottom: 4px;">â€¢ Ctrl + Scroll wheel: Vertical zoom</div>
-      <div style="margin-bottom: 4px;">â€¢ Left-click + Drag: Pan view</div>
-      <div style="margin-bottom: 4px;">â€¢ Right-click: Reset zoom</div>
+      <div style="margin-bottom: 4px;">• Scroll wheel: Horizontal zoom</div>
+      <div style="margin-bottom: 4px;">• Ctrl + Scroll wheel: Vertical zoom</div>
+      <div style="margin-bottom: 4px;">• Left-click + Drag: Pan view</div>
+      <div style="margin-bottom: 4px;">• Right-click: Reset zoom</div>
       <div style="margin-top: 5px; border-top: 1px solid rgba(143, 234, 255, 0.2); padding-top: 5px;"></div>
-      <div style="margin-bottom: 4px;">â€¢ Ctrl + Arrows: Fine Adjust</div>
-      <div style="margin-bottom: 4px;">â€¢ Ctrl + Space: Reset</div>
+      <div style="margin-bottom: 4px;">• Ctrl + Arrows: Fine Adjust</div>
+      <div style="margin-bottom: 4px;">• Ctrl + Space: Reset</div>
     `;
     tooltipElement.style.cssText = `
       position: absolute;
@@ -566,6 +568,7 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     const logicalWidth = canvas.clientWidth;
     const gridBottomY = logicalHeight - BOTTOM_MARGIN;
 
+    // Draw labeled frequency markers
     markers.forEach(m => {
       let x;
       if (zoomLevel > 1) {
@@ -585,6 +588,29 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
       ctx.stroke();
       ctx.textAlign = "center";
       ctx.fillText(m.label, x, headerY);
+    });
+
+    // Draw unlabeled vertical lines for 16k, 22k, 54k, and 60k markers
+    const silentMarkers = [16000, 22000, 54000, 60000];
+    silentMarkers.forEach(f => {
+      if (f > MPX_FMAX_HZ) return; // Skip if frequency exceeds current mode's max frequency
+      
+      let x;
+      if (zoomLevel > 1) {
+        if (f < visibleStart || f > visibleEnd) return;
+        const normalizedPos = (f - visibleStart) / (visibleEnd - visibleStart);
+        x = GRID_X_OFFSET + normalizedPos * (logicalWidth - GRID_X_OFFSET);
+      } else {
+        const horizontalScale = zoomLevel;
+        x = GRID_X_OFFSET +
+          (f / (MPX_FMAX_HZ * LABEL_CURVE_X_SCALE)) *
+          (logicalWidth - GRID_X_OFFSET) * horizontalScale;
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.beginPath();
+      ctx.moveTo(x, gridTopY);
+      ctx.lineTo(x, gridBottomY);
+      ctx.stroke();
     });
 
     const range = getDisplayRange();

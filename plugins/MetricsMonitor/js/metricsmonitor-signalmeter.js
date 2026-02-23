@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js                  (V2.3d)   //
+//  metricsmonitor-signalmeter.js                  (V2.4)    //
 //                                                           //
-//  by Highpoint               last update: 03.02.2026       //
+//  by Highpoint               last update: 23.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
-//  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude,     //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //
@@ -15,8 +16,9 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -29,9 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -145,7 +147,8 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
   // -------------------------------------------------------
   function stereoColorForPercent(p, totalSegments = 30) {
     const i = Math.max(0, Math.min(totalSegments - 1, Math.round((p / 100) * totalSegments) - 1));
-    const topBandStart = totalSegments - 5;
+    // Changed from totalSegments - 5 to totalSegments - 4 to start red at 0.0 dB
+    const topBandStart = totalSegments - 4;
     
     const cDanger = parseRgb(MeterColorDanger);
     const cSafe = parseRgb(MeterColorSafe);
@@ -181,11 +184,11 @@ function setPeakSegment(meterEl, peak, meterId) {
   const segments = meterEl.querySelectorAll(".segment");
   if (!segments.length) return;
 
-  // ✅ Remove ALL previous peak flags (not only the first one)
+  // Remove ALL previous peak flags (not only the first one)
   const prevAll = meterEl.querySelectorAll(".segment.peak-flag");
   prevAll.forEach((prev) => {
     prev.classList.remove("peak-flag");
-    // optional but safe: remove any inline styling we may have applied
+    // remove any inline styling we may have applied
     prev.style.removeProperty("background-color");
     prev.style.removeProperty("box-shadow");
     prev.style.removeProperty("opacity");
@@ -201,7 +204,7 @@ function setPeakSegment(meterEl, peak, meterId) {
 
   seg.classList.add("peak-flag");
 
-  // Peak Color Logic (unchanged)
+  // Peak Color Logic
   let peakColor = "";
 
   if (PeakMode === "fixed" && (meterId.includes("left") || meterId.includes("right"))) {
@@ -243,14 +246,14 @@ function setPeakSegment(meterEl, peak, meterId) {
     const cSafe = parseRgb(MeterColorSafe);
     const cWarning = parseRgb(MeterColorWarning);
 
-    // ✅ hard-reset any previous peak leftovers BEFORE painting the bar
+    // hard-reset any previous peak leftovers BEFORE painting the bar
     segments.forEach((seg) => {
     if (seg.classList.contains("peak-flag")) seg.classList.remove("peak-flag");
       // remove any "important" peak color from earlier frames
       seg.style.removeProperty("background-color");
     });
 
-    // Paint bar normally (NO early-return for peak segments anymore)
+    // Paint bar normally
     segments.forEach((seg, i) => {
       // Check for peak flag first
       if (seg.classList.contains("peak-flag")) return; 
@@ -258,7 +261,8 @@ function setPeakSegment(meterEl, peak, meterId) {
       if (i < activeCount) {
         if (meterId.includes('left') || meterId.includes('right')) {
           // Stereo: Safe (bottom) -> Danger (top)
-          if (i >= segments.length - 5) {
+          // Changed from segments.length - 5 to segments.length - 4 to start red at 0.0 dB
+          if (i >= segments.length - 4) {
             const intensity = 0.8 + (0.2 * (i / segments.length)); 
             seg.style.backgroundColor = applyIntensity(cDanger, intensity);
           } else {
@@ -290,7 +294,6 @@ function setPeakSegment(meterEl, peak, meterId) {
     });
 
     // Peak marker (apply to HF as well if needed in future, currently mainly stereo here logic-wise)
-    // But let's check both ID types to be safe
     const key = meterId.includes('left') ? 'left' : (meterId.includes('right') ? 'right' : null);
     
     // Only update stereo peaks here based on args
@@ -303,6 +306,31 @@ function setPeakSegment(meterEl, peak, meterId) {
   // -------------------------------------------------------
   // Shared Hub (Single Socket + Single Audio Loop)
   // -------------------------------------------------------
+
+  // Logarithmic dB scale parameters for the UI Meter
+  // Scale goes from +5dB down to -35dB (Total range: 40dB)
+  const METER_MAX_DB = 5;
+  const METER_MIN_DB = -35;
+  const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
+
+  // Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
+  function amplitudeToMeterPercent(amplitude) {
+    // Prevent log(0) calculation error
+    if (amplitude < 0.00001) return 0;
+    
+    // Use AudioMeterBoost for this module specifically to maintain 0dB integrity when = 1.0
+    const linear = amplitude * AudioMeterBoost;
+    
+    // Calculate physically accurate decibel value (dBFS)
+    const db = 20 * Math.log10(linear);
+
+    // Map to the 0-100% visual scale range (+5 dB to -35 dB)
+    if (db <= METER_MIN_DB) return 0;
+    if (db >= METER_MAX_DB) return 100;
+
+    return ((db - METER_MIN_DB) / METER_RANGE) * 100;
+  }
+
   function createHub() {
     return {
       socket: null,
@@ -390,6 +418,8 @@ function setPeakSegment(meterEl, peak, meterId) {
         rafId: null,
         setupIntervalId: null,
         subscribers: new Set(),
+        smoothedLevelL: 0,
+        smoothedLevelR: 0,
       },
 
       ensureAudio() {
@@ -425,15 +455,21 @@ function setPeakSegment(meterEl, peak, meterId) {
                     A.dataL = null;
                     A.dataR = null;
                     A.sourceNode = null;
+                    A.smoothedLevelL = 0;
+                    A.smoothedLevelR = 0;
                 }
 
                 if (!A.analyserL || !A.dataL) {
                      A.analyserL = ctx.createAnalyser();
                      A.analyserR = ctx.createAnalyser();
-                     A.analyserL.fftSize = 2048;
-                     A.analyserR.fftSize = 2048;
-                     A.dataL = new Uint8Array(A.analyserL.frequencyBinCount);
-                     A.dataR = new Uint8Array(A.analyserR.frequencyBinCount);
+                     
+                     // Increased FFT size for smoother and more accurate extraction
+                     A.analyserL.fftSize = 4096;
+                     A.analyserR.fftSize = 4096;
+                     
+                     // Initialize high precision 32-bit float arrays
+                     A.dataL = new Float32Array(A.analyserL.fftSize);
+                     A.dataR = new Float32Array(A.analyserR.fftSize);
                 }
 
                 // Check source node connection
@@ -473,29 +509,41 @@ function setPeakSegment(meterEl, peak, meterId) {
                 }
 
                 if (A.analyserL && A.analyserR && A.dataL && A.dataR) {
-                    A.analyserL.getByteTimeDomainData(A.dataL);
-                    A.analyserR.getByteTimeDomainData(A.dataR);
+                    // Use Float32Array to get exact waveform floats (-1.0 to 1.0) for highly accurate dB translation
+                    A.analyserL.getFloatTimeDomainData(A.dataL);
+                    A.analyserR.getFloatTimeDomainData(A.dataR);
                     
                     let maxL = 0;
                     let maxR = 0;
+                    
+                    // Extract absolute peak values representing true digital peak amplitude
                     for (let i = 0; i < A.dataL.length; i++) {
-                        const d = Math.abs(A.dataL[i] - 128);
-                        if (d > maxL) maxL = d;
+                        const absL = Math.abs(A.dataL[i]);
+                        if (absL > maxL) maxL = absL;
                     }
                     for (let i = 0; i < A.dataR.length; i++) {
-                        const d = Math.abs(A.dataR[i] - 128);
-                        if (d > maxR) maxR = d;
+                        const absR = Math.abs(A.dataR[i]);
+                        if (absR > maxR) maxR = absR;
                     }
+
+                    // Convert accurate physical peak level to our UI percentage scale based on Log/dB
+                    const rawTargetPercentL = amplitudeToMeterPercent(maxL);
+                    const rawTargetPercentR = amplitudeToMeterPercent(maxR);
                     
-                    const sBoost = (window.MetricsMonitor && window.MetricsMonitor.Config)
-                        ? (window.MetricsMonitor.Config.StereoBoost ?? 4)
-                        : 4;
+                    // Apply asymmetric smoothing: fast attack, slow smooth decay
+                    const attack = 0.8;
+                    const decay = 0.15; // Controls how fast the visual meter smoothly drops
                     
-                    let levelL = ((maxL / 128) * 100) * sBoost;
-                    let levelR = ((maxR / 128) * 100) * sBoost;
-                    
-                    levelL = Math.min(100, Math.max(0, levelL));
-                    levelR = Math.min(100, Math.max(0, levelR));
+                    A.smoothedLevelL += (rawTargetPercentL > A.smoothedLevelL) 
+                        ? (rawTargetPercentL - A.smoothedLevelL) * attack 
+                        : (rawTargetPercentL - A.smoothedLevelL) * decay;
+
+                    A.smoothedLevelR += (rawTargetPercentR > A.smoothedLevelR) 
+                        ? (rawTargetPercentR - A.smoothedLevelR) * attack 
+                        : (rawTargetPercentR - A.smoothedLevelR) * decay;
+
+                    let levelL = Math.min(100, Math.max(0, A.smoothedLevelL));
+                    let levelR = Math.min(100, Math.max(0, A.smoothedLevelR));
 
                     this.sharedLevels.left = levelL;
                     this.sharedLevels.right = levelR;

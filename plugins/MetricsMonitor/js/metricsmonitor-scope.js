@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.3d)  //
+//  metricsmonitor-scope.js                         (V2.4)   //
 //                                                           //
-//  by Highpoint               last update: 03.02.2026       //
+//  by Highpoint               last update: 23.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //

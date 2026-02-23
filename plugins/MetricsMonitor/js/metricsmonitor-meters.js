@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.3d)  //
+//  metricsmonitor-meters.js                        (V2.4)  //
 //                                                           //
-//  by Highpoint               last update: 03.02.2026       //
+//  by Highpoint               last update: 23.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //
@@ -15,8 +16,9 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -29,9 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -110,7 +112,7 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
         if (u) hfUnit = u.toLowerCase();
     }
 
-    // Stereo audio context variables (Persisted globally if needed, scoped here)
+    // Stereo audio context variables
     let stereoAudioContext = null;
     let stereoSourceNode = null;
     let stereoSplitter = null;
@@ -220,7 +222,8 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // ==========================================================
     function getStereoColorForPercent(p, totalSegments = 30) {
         const i = Math.max(0, Math.min(totalSegments - 1, Math.round((p / 100) * totalSegments) - 1));
-        const topBandStart = totalSegments - 5;
+        // Calculate the top 4 segments to be completely in the red zone (0 to +5 dB)
+        const topBandStart = totalSegments - 4; 
         const cDanger = parseRgb(MeterColorDanger);
         const cSafe = parseRgb(MeterColorSafe);
 
@@ -407,9 +410,25 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 const dB = (peaks.right.value / 100) * 40 - 35;
                 sharedText = dB.toFixed(1);
             } else if (meterId.includes("hf")) {
-                const dBuV_from_percent = (safeLevel / 100) * 90;
-                let baseHF = dBuV_from_percent + 10.875;
-                sharedText = hfBaseToDisplay(baseHF).toFixed(1);
+                let syncText = null;
+                
+                // Read the actual HTML text elements of the large SignalMeter directly
+                const mainSpan = document.querySelector('[data-mm-signal="main"]') || document.getElementById('data-signal');
+                const decSpan = document.querySelector('[data-mm-signal="decimal"]') || document.getElementById('data-signal-decimal');
+                
+                // If the large display is active and visible, concatenate the text
+                if (mainSpan && mainSpan.innerText && mainSpan.innerText.trim() !== "-" && mainSpan.innerText.trim() !== "") {
+                    syncText = mainSpan.innerText + (decSpan && decSpan.innerText ? decSpan.innerText : "");
+                }
+                
+                // If text is found, use it 1:1. If Module 3 is disabled, use the fallback calculation.
+                if (syncText) {
+                    sharedText = syncText;
+                } else {
+                    const dBuV_from_percent = (safeLevel / 100) * 90;
+                    let baseHF = dBuV_from_percent + 10.875;
+                    sharedText = hfBaseToDisplay(baseHF).toFixed(1);
+                }
             } else if (meterId.includes("stereo-pilot")) {
                 sharedText = rawValueOverride !== null ? rawValueOverride.toFixed(1) : ((safeLevel / 100) * 16.0).toFixed(1);
             } else if (meterId.includes("rds")) {
@@ -441,7 +460,8 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 let finalColor = "#333";
                 if (i < activeCount) {
                     if (meterId.includes("left") || meterId.includes("right")) {
-                        if (i >= segments.length - 5) finalColor = getScaledColor(cDanger, 1.0);
+                        // Change offset to - 4 to align perfectly with the 0.0 dB mark
+                        if (i >= segments.length - 4) finalColor = getScaledColor(cDanger, 1.0);
                         else finalColor = getScaledColor(cSafe, 0.4 + ((i / segments.length) * 0.4));
                     } else if (meterId.includes("stereo-pilot")) {
                         if (i < segments.length * 0.5) finalColor = applyIntensity(cSafe, 0.4 + (i / (segments.length * 0.5)) * 0.4);
@@ -629,7 +649,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // Audio setup & animation (ROBUST VERSION)
     // ==========================================================
     function setupAudioMeters() {
-        // --- This logic is copied 1:1 from metricsmonitor-audiometer.js / signalmeter.js ---
         if (
             typeof Stream === "undefined" ||
             !Stream ||
@@ -650,7 +669,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
             const ctx = sourceNode.context;
 
             // 1. Context Changed? -> Reset Everything
-            // This happens if browser tab suspended or new page load
             if (stereoAudioContext !== ctx) {
                 stereoAudioContext = ctx;
                 stereoSourceNode = null;
@@ -661,36 +679,32 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 stereoDataR = null;
             }
 
-            // 2. Ensure Analysers exist
-            if (!stereoAnalyserL || !stereoDataL) {
+            // 2. Ensure Analysers exist - Switch to 32-bit floats
+            if (!stereoAnalyserL) {
                 stereoAnalyserL = stereoAudioContext.createAnalyser();
                 stereoAnalyserR = stereoAudioContext.createAnalyser();
 
                 stereoAnalyserL.fftSize = 2048;
                 stereoAnalyserR.fftSize = 2048;
 
-                stereoDataL = new Uint8Array(stereoAnalyserL.frequencyBinCount);
-                stereoDataR = new Uint8Array(stereoAnalyserR.frequencyBinCount);
+                // Create Float32Arrays instead of Uint8Arrays to eliminate quantization
+                stereoDataL = new Float32Array(stereoAnalyserL.fftSize);
+                stereoDataR = new Float32Array(stereoAnalyserR.fftSize);
             }
 
             // 3. Source Connection Logic
-            // Only reconnect if the source node object itself has changed (e.g. stop/start clicked)
             if (stereoSourceNode !== sourceNode) {
                 stereoSourceNode = sourceNode;
 
-                // Create Splitter if missing
                 if (!stereoSplitter) {
                     stereoSplitter = stereoAudioContext.createChannelSplitter(2);
-                    // Internal wirings
                     try { stereoSplitter.connect(stereoAnalyserL, 0); } catch(e){}
                     try { stereoSplitter.connect(stereoAnalyserR, 1); } catch(e){}
                 }
 
-                // Connect Source -> Splitter
                 try {
                     stereoSourceNode.connect(stereoSplitter);
                 } catch(e) {
-                    // Ignore "InvalidAccessError" if already connected
                     if (e.name !== 'InvalidAccessError') {
                         console.warn("[MetricsMeters] Connect Error:", e);
                     }
@@ -711,34 +725,49 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
         if (stereoAnimationId) cancelAnimationFrame(stereoAnimationId);
 
         const loop = () => {
-            // If context suspended, keep checking but don't draw
             if (stereoAudioContext && stereoAudioContext.state === 'suspended') {
                 stereoAnimationId = requestAnimationFrame(loop);
                 return;
             }
 
-            if (!stereoAnalyserL || !stereoAnalyserR || !stereoDataL || !stereoDataR) {
+            if (!stereoAnalyserL || !stereoAnalyserR) {
                 stereoAnimationId = requestAnimationFrame(loop);
                 return;
             }
 
-            stereoAnalyserL.getByteTimeDomainData(stereoDataL);
-            stereoAnalyserR.getByteTimeDomainData(stereoDataR);
+            // Ensure the Float32Arrays exist and match the analysers
+            if (!stereoDataL || stereoDataL.length !== stereoAnalyserL.fftSize) {
+                stereoDataL = new Float32Array(stereoAnalyserL.fftSize);
+                stereoDataR = new Float32Array(stereoAnalyserR.fftSize);
+            }
+
+            // High Precision 32-bit Float Audio Capture
+            stereoAnalyserL.getFloatTimeDomainData(stereoDataL);
+            stereoAnalyserR.getFloatTimeDomainData(stereoDataR);
 
             let maxL = 0;
             let maxR = 0;
 
             for (let i = 0; i < stereoDataL.length; i++) {
-                const d = Math.abs(stereoDataL[i] - 128);
-                if (d > maxL) maxL = d;
+                const absL = Math.abs(stereoDataL[i]);
+                if (absL > maxL) maxL = absL;
             }
             for (let i = 0; i < stereoDataR.length; i++) {
-                const d = Math.abs(stereoDataR[i] - 128);
-                if (d > maxR) maxR = d;
+                const absR = Math.abs(stereoDataR[i]);
+                if (absR > maxR) maxR = absR;
             }
 
-            let levelL = ((maxL / 128) * 100) * StereoBoost;
-            let levelR = ((maxR / 128) * 100) * StereoBoost;
+            // Convert linear amplitude to true float representation
+            const linearL = maxL * StereoBoost;
+            const linearR = maxR * StereoBoost;
+
+            // Logarithmic calculation is now exactly precise due to floating point data
+            const dBL = linearL > 0.00001 ? 20 * Math.log10(linearL) : -100;
+            const dBR = linearR > 0.00001 ? 20 * Math.log10(linearR) : -100;
+
+            // Map the dB range (-35 dB to +5 dB, total 40 dB range) to the 0-100 percentage scale
+            let levelL = ((dBL + 35) / 40) * 100;
+            let levelR = ((dBR + 35) / 40) * 100;
 
             levelL = Math.min(100, Math.max(0, levelL));
             levelR = Math.min(100, Math.max(0, levelR));

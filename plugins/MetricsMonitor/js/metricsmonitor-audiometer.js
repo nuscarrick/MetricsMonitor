@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.3d)  //
+//  metricsmonitor-audiometer.js                    (V2.4)   //
 //                                                           //
-//  by Highpoint               last update: 03.02.2026       //
+//  by Highpoint               last update: 23.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //
@@ -15,8 +16,9 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
@@ -29,9 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,5,0,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
@@ -79,6 +81,10 @@ const EQ_BAND_COUNT = 5;
 
 // EQ Display State
 const eqLevels = new Array(EQ_BAND_COUNT).fill(0);
+
+// Smoothing state for stereo meters (to prevent instant drops)
+let smoothedLevelL = 0;
+let smoothedLevelR = 0;
 
 // Peak Hold Configuration
 const PEAK_CONFIG = {
@@ -165,39 +171,38 @@ function hfPercentFromBase(baseHF) {
 }
 
 // Build Scale labels based on unit
-  function buildHFScale(unit) {
-    const baseScale_dBuV = [90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
-    const ssu = (unit || hfUnit || "").toLowerCase();
+function buildHFScale(unit) {
+  const baseScale_dBuV = [90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
+  const ssu = (unit || hfUnit || "").toLowerCase();
 
-    function round10(v) {
-      return Math.round(v / 10) * 10;
-    }
+  function round10(v) {
+    return Math.round(v / 10) * 10;
+  }
 
-    const lastIndex = baseScale_dBuV.length - 1;
+  const lastIndex = baseScale_dBuV.length - 1;
 
-    if (ssu === "dbm") {
-      return baseScale_dBuV.map((v, idx) => {
-        const dBm = v - 108.875;
-        const rounded = round10(dBm);
-        return idx === lastIndex ? `${rounded} dBm` : `${rounded}`;
-      });
-    }
-
-    if (ssu === "dbf") {
-      return baseScale_dBuV.map((v, idx) => {
-        const dBf = v + 10.875;
-        const rounded = round10(dBf);
-        return idx === lastIndex ? `${rounded} dBf` : `${rounded}`;
-      });
-    }
-
-    // Default: dBµV
+  if (ssu === "dbm") {
     return baseScale_dBuV.map((v, idx) => {
-      const rounded = round10(v);
-      return idx === lastIndex ? `${rounded} dBµV` : `${rounded}`;
+      const dBm = v - 108.875;
+      const rounded = round10(dBm);
+      return idx === lastIndex ? `${rounded} dBm` : `${rounded}`;
     });
   }
 
+  if (ssu === "dbf") {
+    return baseScale_dBuV.map((v, idx) => {
+      const dBf = v + 10.875;
+      const rounded = round10(dBf);
+      return idx === lastIndex ? `${rounded} dBf` : `${rounded}`;
+    });
+  }
+
+  // Default: dBµV
+  return baseScale_dBuV.map((v, idx) => {
+    const rounded = round10(v);
+    return idx === lastIndex ? `${rounded} dBµV` : `${rounded}`;
+  });
+}
 
 // -------------------------------------------------------
 // Peak & Color Helpers
@@ -221,14 +226,14 @@ function updatePeakValue(channel, current) {
   }
 }
 
-
 // Calculate color with gradient logic based on CONFIG COLORS
 function stereoColorForPercent(p, totalSegments = 30) {
   const i = Math.max(
     0,
     Math.min(totalSegments - 1, Math.round((p / 100) * totalSegments) - 1)
   );
-  const topBandStart = totalSegments - 5;
+  // Changed from totalSegments - 5 to totalSegments - 4 to start red at 0.0 dB
+  const topBandStart = totalSegments - 4;
   const cDanger = parseRgb(MeterColorDanger);
   const cSafe = parseRgb(MeterColorSafe);
 
@@ -244,7 +249,7 @@ function setPeakSegment(meterEl, peak, meterId) {
   const segments = meterEl.querySelectorAll('.segment');
   if (!segments.length) return;
 
-  // ✅ Clear ALL previous peak flags + remove inline peak styling
+  // Clear ALL previous peak flags + remove inline peak styling
   const prevAll = meterEl.querySelectorAll('.segment.peak-flag');
   prevAll.forEach((prev) => {
     prev.classList.remove('peak-flag');
@@ -259,7 +264,6 @@ function setPeakSegment(meterEl, peak, meterId) {
 
   seg.classList.add('peak-flag');
 
-  // ... dein Peak-Color-Logic bleibt ab hier unverändert ...
   let peakColor = "";
   if (PeakMode === "fixed" && (meterId.includes('left') || meterId.includes('right'))) {
     peakColor = PeakColorFixed;
@@ -276,11 +280,11 @@ function setPeakSegment(meterEl, peak, meterId) {
         const cDanger = parseRgb(MeterColorDanger);
         const pos = idx / hfThresholdIndex;
         const intensity = 0.6 + (pos * 0.4);
-        peakColor = applyIntensity(cDanger, intensity);
+        peakColor = getScaledColor(cDanger, intensity);
       } else {
         const cSafe = parseRgb(MeterColorSafe);
         const intensity = 0.4 + ((idx / segments.length) * 0.6);
-        peakColor = applyIntensity(cSafe, intensity);
+        peakColor = getScaledColor(cSafe, intensity);
       }
     }
   }
@@ -289,7 +293,6 @@ function setPeakSegment(meterEl, peak, meterId) {
     seg.style.setProperty("background-color", peakColor, "important");
   }
 }
-
 
 // -------------------------------------------------------
 // Meter Creation & Updating
@@ -370,7 +373,8 @@ function updateMeter(meterId, level) {
         meterId.includes("right") ||
         meterId.startsWith("eq")
       ) {
-        if (i >= segments.length - 5) {
+        // Changed from segments.length - 5 to segments.length - 4 to start red at 0.0 dB
+        if (i >= segments.length - 4) {
           finalColor = MeterColorDanger;
         } else {
           const intensity = 0.4 + ((i / segments.length) * 0.6);
@@ -427,46 +431,38 @@ function updateMeter(meterId, level) {
 }
 
 // -------------------------------------------------------
-// EQ Calculation (10-band -> 5-band)
+// EQ Calculation (Accurate isolated 5-Band mapping)
 // -------------------------------------------------------
-function mmCompute10BandLevels(freqData) {
-  const bands = new Array(10).fill(0);
-  const ranges = [
-    [0, 2],   // Sub-bass
-    [3, 5],   // Bass
-    [6, 8],   // Low-mid
-    [9, 12],  // Mid
-    [13, 18], // High-mid
-    [19, 25], // Presence
-    [26, 32], // Brilliance 1
-    [33, 40], // Brilliance 2
-    [41, 48], // Air 1
-    [49, 63]  // Air 2
-  ];
+function mmCompute5BandLevels(freqData, ctxSampleRate, analyserFftSize) {
+  // Calculate how many Hertz each frequency bin represents
+  const binWidth = ctxSampleRate / analyserFftSize;
 
-  ranges.forEach((range, idx) => {
-    let sum = 0;
-    let count = 0;
-    for (let i = range[0]; i <= range[1] && i < freqData.length; i++) {
-      sum += freqData[i];
-      count++;
+  function getPeakInBand(minFreq, maxFreq) {
+    let startBin = Math.floor(minFreq / binWidth);
+    let endBin = Math.ceil(maxFreq / binWidth);
+    
+    // Clamp to array bounds
+    startBin = Math.max(0, startBin);
+    endBin = Math.min(freqData.length - 1, endBin);
+    
+    let maxVal = 0;
+    // Look for the peak energy in this isolated frequency band
+    for (let i = startBin; i <= endBin; i++) {
+      if (freqData[i] > maxVal) {
+        maxVal = freqData[i];
+      }
     }
-    bands[idx] = count > 0 ? sum / count : 0;
-  });
+    return maxVal;
+  }
 
-  return bands;
-}
-
-function mmCollapse10To5(bands10) {
-  if (!bands10 || bands10.length < 10) return null;
-
-  const bands5 = [];
-  bands5[0] = (bands10[0] + bands10[1]) / 2; // ~64 Hz
-  bands5[1] = (bands10[2] + bands10[3]) / 2; // ~256 Hz
-  bands5[2] = (bands10[4] + bands10[5]) / 2; // ~1 kHz
-  bands5[3] = (bands10[6] + bands10[7]) / 2; // ~4 kHz
-  bands5[4] = (bands10[8] + bands10[9]) / 2; // ~10 kHz
-  return bands5;
+  // Use separated ~1-octave bands centered closely around the target frequencies.
+  return [
+    getPeakInBand(45, 90),       // Band 1: Center ~64 Hz
+    getPeakInBand(180, 360),     // Band 2: Center ~256 Hz
+    getPeakInBand(700, 1400),    // Band 3: Center ~1 kHz
+    getPeakInBand(2800, 5600),   // Band 4: Center ~4 kHz
+    getPeakInBand(7000, 14000)   // Band 5: Center ~10 kHz
+  ];
 }
 
 // -------------------------------------------------------
@@ -494,8 +490,6 @@ function setupAudioEQ() {
     !Stream.Fallback.Player.Amplification
   ) {
     // Keep trying - user might not have clicked play yet
-    // Do not recursively call via timeout immediately here, just return.
-    // The setInterval in initAudioMeter will call us again.
     return;
   }
   
@@ -510,7 +504,6 @@ function setupAudioEQ() {
     const ctx = sourceNode.context;
 
     // Reset if AudioContext changed OR if we haven't initialized yet
-    // Important: Do not reset if we are just re-verifying the same context
     if (eqAudioContext !== ctx) {
       eqAudioContext   = ctx;
       eqAnalyser       = null;
@@ -521,12 +514,21 @@ function setupAudioEQ() {
       stereoDataL      = null;
       stereoDataR      = null;
       eqSourceNode     = null;
+      
+      // Reset smoothing arrays when context resets
+      smoothedLevelL = 0;
+      smoothedLevelR = 0;
     }
 
     if (!eqAnalyser || !eqDataArray) {
       eqAnalyser = eqAudioContext.createAnalyser();
-      eqAnalyser.fftSize = 4096;
+      eqAnalyser.fftSize = fftSize; // Use the configured global fftSize
       eqAnalyser.smoothingTimeConstant = 0.6;
+      
+      // Adjust the native decibel bounds of the Analyser.
+      eqAnalyser.minDecibels = -80; 
+      eqAnalyser.maxDecibels = -15; 
+      
       eqDataArray = new Uint8Array(eqAnalyser.frequencyBinCount);
     }
 
@@ -534,7 +536,6 @@ function setupAudioEQ() {
     if (eqSourceNode !== sourceNode) {
       eqSourceNode = sourceNode;
       try { eqSourceNode.connect(eqAnalyser); } catch(e){
-        // Only log if it's not the "already connected" error
         if (e.name !== 'InvalidAccessError') console.warn('AudioMeter connect error:', e);
       }
     }
@@ -544,16 +545,17 @@ function setupAudioEQ() {
       stereoAnalyserL = eqAudioContext.createAnalyser();
       stereoAnalyserR = eqAudioContext.createAnalyser();
 
-      stereoAnalyserL.fftSize = 2048;
-      stereoAnalyserR.fftSize = 2048;
+      // Increased FFT size for smoother and more accurate extraction
+      stereoAnalyserL.fftSize = 4096;
+      stereoAnalyserR.fftSize = 4096;
 
-      stereoDataL = new Uint8Array(stereoAnalyserL.frequencyBinCount);
-      stereoDataR = new Uint8Array(stereoAnalyserR.frequencyBinCount);
+      // Initialize high precision 32-bit float arrays
+      stereoDataL = new Float32Array(stereoAnalyserL.fftSize);
+      stereoDataR = new Float32Array(stereoAnalyserR.fftSize);
 
       try { eqSourceNode.connect(stereoSplitter); } catch(e){
         if (e.name !== 'InvalidAccessError') console.warn('AudioMeter splitter connect error:', e);
       }
-      // These internal connections usually persist, but safe to retry
       try { stereoSplitter.connect(stereoAnalyserL, 0); } catch(e){}
       try { stereoSplitter.connect(stereoAnalyserR, 1); } catch(e){}
     }
@@ -568,11 +570,38 @@ function setupAudioEQ() {
   }
 }
 
+// Logarithmic dB scale parameters for the UI Meter
+// Scale goes from +5dB down to -35dB (Total range: 40dB)
+const METER_MAX_DB = 5;
+const METER_MIN_DB = -35;
+const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
+
+// Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
+function amplitudeToMeterPercent(amplitude) {
+  // Prevent log(0) calculation error
+  if (amplitude < 0.00001) return 0;
+  
+  // Use AudioMeterBoost for this module specifically to maintain 0dB integrity when = 1.0
+  const linear = amplitude * AudioMeterBoost;
+  
+  // Calculate physically accurate decibel value (dBFS)
+  const db = 20 * Math.log10(linear);
+
+  // Map to the 0-100% visual scale range (+5 dB to -35 dB)
+  if (db <= METER_MIN_DB) return 0;
+  if (db >= METER_MAX_DB) return 100;
+
+  return ((db - METER_MIN_DB) / METER_RANGE) * 100;
+}
+
 function startEqAnimation() {
   if (eqAnimationId) cancelAnimationFrame(eqAnimationId);
+  
+  const EQ_NOISE_GATE = 30; 
+  const bandWeights = [1.0, 1.05, 1.15, 1.3, 1.6];
 
   const loop = () => {
-    // If context is suspended or closed (e.g. stop clicked), stop animating but keep loop checking lightly
+    // If context is suspended or closed
     if (eqAudioContext && eqAudioContext.state === 'suspended') {
         eqAnimationId = requestAnimationFrame(loop);
         return;
@@ -583,16 +612,30 @@ function startEqAnimation() {
       return;
     }
 
-    // ---- AudioMeter Calculation ----
+    // ---- AudioMeter Calculation (Frequency / EQ) ----
     eqAnalyser.getByteFrequencyData(eqDataArray);
-    const levels10 = mmCompute10BandLevels(eqDataArray);
-    const bands5 = mmCollapse10To5(levels10);
+    
+    const currentSampleRate = eqAudioContext.sampleRate || 48000;
+    const bands5 = mmCompute5BandLevels(eqDataArray, currentSampleRate, eqAnalyser.fftSize);
 
     for (let i = 0; i < EQ_BAND_COUNT; i++) {
       let targetPercent = 0;
       if (bands5 && bands5[i] != null) {
-        targetPercent = (bands5[i] / 255) * 100;
-        targetPercent *= AudioMeterBoost;
+        let rawValue = bands5[i];
+        
+        if (rawValue <= EQ_NOISE_GATE) {
+            rawValue = 0;
+        } else {
+            rawValue = (rawValue - EQ_NOISE_GATE) / (255 - EQ_NOISE_GATE);
+        }
+        
+        rawValue = rawValue * bandWeights[i];
+        if (rawValue > 1.0) rawValue = 1.0;
+        
+        let normalized = Math.pow(rawValue, 1.2);
+        
+        // Multiply by 87.5 so that a full signal perfectly aligns with the visual 0 dB line (35 / 40 range mapping)
+        targetPercent = normalized * 87.5 * AudioMeterBoost;
       }
 
       if (targetPercent > 100) targetPercent = 100;
@@ -603,33 +646,47 @@ function startEqAnimation() {
       updateMeter(`eq${i + 1}-meter`, eqLevels[i]);
     }
 
-    // ---- Stereo Calculation ----
+    // ---- Stereo Calculation (Time Domain / Logarithmic dBFS) ----
     if (stereoAnalyserL && stereoAnalyserR && stereoDataL && stereoDataR) {
-      stereoAnalyserL.getByteTimeDomainData(stereoDataL);
-      stereoAnalyserR.getByteTimeDomainData(stereoDataR);
+      // Use Float32Array to get exact waveform floats (-1.0 to 1.0) for highly accurate dB translation
+      stereoAnalyserL.getFloatTimeDomainData(stereoDataL);
+      stereoAnalyserR.getFloatTimeDomainData(stereoDataR);
 
       let maxL = 0;
       let maxR = 0;
 
+      // Extract absolute peak values representing true digital peak amplitude
       for (let i = 0; i < stereoDataL.length; i++) {
-        const d = Math.abs(stereoDataL[i] - 128);
-        if (d > maxL) maxL = d;
+        const absL = Math.abs(stereoDataL[i]);
+        if (absL > maxL) maxL = absL;
       }
       for (let i = 0; i < stereoDataR.length; i++) {
-        const d = Math.abs(stereoDataR[i] - 128);
-        if (d > maxR) maxR = d;
+        const absR = Math.abs(stereoDataR[i]);
+        if (absR > maxR) maxR = absR;
       }
 
-      let levelL = ((maxL / 128) * 100) * StereoBoost;
-      let levelR = ((maxR / 128) * 100) * StereoBoost;
+      // Convert accurate physical peak level to our UI percentage scale based on Log/dB
+      const rawTargetPercentL = amplitudeToMeterPercent(maxL);
+      const rawTargetPercentR = amplitudeToMeterPercent(maxR);
 
-      levelL = Math.min(100, Math.max(0, levelL));
-      levelR = Math.min(100, Math.max(0, levelR));
+      // Apply asymmetric smoothing: fast attack, slow smooth decay
+      const attack = 0.8;
+      const decay = 0.15; // Controls how fast the visual meter smoothly drops
+
+      smoothedLevelL += (rawTargetPercentL > smoothedLevelL) 
+          ? (rawTargetPercentL - smoothedLevelL) * attack 
+          : (rawTargetPercentL - smoothedLevelL) * decay;
+
+      smoothedLevelR += (rawTargetPercentR > smoothedLevelR) 
+          ? (rawTargetPercentR - smoothedLevelR) * attack 
+          : (rawTargetPercentR - smoothedLevelR) * decay;
+
+      let levelL = Math.min(100, Math.max(0, smoothedLevelL));
+      let levelR = Math.min(100, Math.max(0, smoothedLevelR));
 
       levels.left = levelL;
       levels.right = levelR;
 
-      // Use unique IDs to avoid conflict
       updateMeter("eq-left-meter", levelL);
       updateMeter("eq-right-meter", levelR);
     }
@@ -736,7 +793,6 @@ function initAudioMeter(containerOrId = "level-meter-container") {
   setupAudioEQ();
   
   // Start robust interval to check for audio start
-  // This ensures if SignalMeter loaded first and then we switch here, we catch the audio context
   eqSetupIntervalId = setInterval(setupAudioEQ, 1000);
 
   if (!hfUnitListenerAttached && window.MetricsMonitor && typeof window.MetricsMonitor.onSignalUnitChange === "function") {

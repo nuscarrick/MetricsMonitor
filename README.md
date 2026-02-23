@@ -4,9 +4,14 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.3d
-- Channel selection added for the MPX signal (left, right or auto)
-
+## v2.4
+- Vertical marker lines at 16, 22, 54 and 60 kHz were added to the analyzer
+- 5-band audio display calibrated and adjusted
+- VU meter calibrated and adjusted
+- Fixed duplicate tooltip display on multipath icon
+- RF level meter now matches module 3
+- Tilt correction improved (thanks to AmateurAudioDude for the code)
+- Variable built in for delaying the analyzer, scope, and MPX output (see Configuration options) -> necessary for client-side audio synchronization
 
 ## Important note for this version: 
 
@@ -62,6 +67,7 @@ The following variables can be changed in the metricsmonitor.json config file:
     "MPXStereoDecoder": "off",	     //  Set the switch to "on" if you are decoding the stereo signal from MPX with a stereo decoder. This will enable the optical mono/stereo indicator to function when MPXmode is set to "on". The default setting is "off".          
     "MPXInputCard": "",              //  Configure the sound input exclusive to MPX (e.g., for Linux: "plughw:CARD=Device" or Windows: "Microphone (HD USB Audio Device)")
     "MPXTiltCalibration": 0,         //  Adjust the input slope of the sound card from -1000 µs to 1000 µs (default is 0)
+	"VisualDelayMs": 250,            //  Set the client-side delay in milliseconds for the analyzer, scope, and MPX display here so that it runs in sync with the audio playback (default is 250).
 	
     /* Calibration Offsets (Meters) */
     "MeterInputCalibration": 0,      //  Increase or decrease the value as needed to adjust the input for the MPX gauges (Pilot, MPX, RDS). The default value is 0. 
@@ -160,6 +166,10 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.3d
+- Channel selection added for the MPX signal (left, right or auto)
+
 
 ### v2.3c
 - Alignment of scale values ​​adjusted
