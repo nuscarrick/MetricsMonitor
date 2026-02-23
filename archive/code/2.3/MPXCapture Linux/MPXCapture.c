@@ -1,5 +1,5 @@
 /*
- * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4)
+ * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.3d)
  * 
  * Features:
  * - Asynchronous Input Thread (Ringbuffer) - Decouples Audio Input from DSP
@@ -393,15 +393,12 @@ static void Tilt_Update(TiltCorrector *t, float us) {
 static float Tilt_Process(TiltCorrector *t, float x) {
     if (fabsf(t->currentUs) < 1.0f) return x;
     if (isnan(x) || isinf(x)) return 0.0f;
-
-    t->yIntegrator += x * t->gain;
-
-    const float dcAlpha = 1e-5f;
-    t->yIntegrator -= t->yIntegrator * dcAlpha;
-
+    
+    t->yIntegrator = (t->yIntegrator * 0.999f) + (x * t->gain);
+    
     if (t->yIntegrator > 2.0f) t->yIntegrator = 2.0f;
     else if (t->yIntegrator < -2.0f) t->yIntegrator = -2.0f;
-
+    
     return x + t->yIntegrator;
 }
 

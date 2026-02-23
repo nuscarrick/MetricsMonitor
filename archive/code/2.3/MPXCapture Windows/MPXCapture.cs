@@ -1,5 +1,5 @@
 ﻿/*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.4)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.3d)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
@@ -227,15 +227,9 @@ public class TiltCorrector
     {
         if (MathF.Abs(currentUs) < 1.0f) return x;
         if (!DspUtils.IsValid(x)) return 0f;
-
-        yIntegrator += x * gain;
-
-        const float dcAlpha = 1e-5f;
-        yIntegrator -= yIntegrator * dcAlpha;
-
+        yIntegrator = (yIntegrator * 0.999f) + (x * gain);
         if (yIntegrator > 2.0f) yIntegrator = 2.0f;
         else if (yIntegrator < -2.0f) yIntegrator = -2.0f;
-
         return x + yIntegrator;
     }
 }
