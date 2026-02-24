@@ -1,5 +1,5 @@
 /*
- * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4)
+ * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4a)
  * 
  * Features:
  * - Asynchronous Input Thread (Ringbuffer) - Decouples Audio Input from DSP
@@ -8,13 +8,15 @@
  * - DSP chain (19 kHz PLL locked)
  * - Precision Pilot Measurement (IQ demod + RMS)
  * - Precision RDS Measurement (IQ demod + RMS) with Dual-Mode reference
- * - Real-time resource optimization via UDP control
+ * - Real-time resource optimization via UDP control (Instant ON/OFF)
  * - Dynamic Config Reload
  * - MPX TruePeak (Catmull-Rom 4x/8x)
  * - DC Blocker (Robust High-pass, < 1Hz) 
  * - ITU-R BS.412 MPX Power Measurement (60s Integration)
  * - Tilt Correction (Stabilized Linear Gain Method)
  * - Manual/Auto MPX Channel Selection
+ * - Dynamic Scope Amplitude Calibration
+ * - Double-Buffered Trigger Engine with 128-Sample Pre-Trigger Shift
  *
  * Compile Linux: gcc MPXCapture.c -O3 -ffast-math -lm -pthread -static -o MPXCapture
  */
@@ -71,7 +73,7 @@ static channel_mode_t g_channel_mode = CH_AUTO;
    RINGBUFFER FOR ASYNCHRONOUS INPUT
    ============================================================ */
 
-#define RINGBUFFER_CAPACITY 192000
+#define RINGBUFFER_CAPACITY 384000
 typedef struct {
     float *buffer;
     size_t capacity;
@@ -211,15 +213,15 @@ static void* input_thread_func(void *arg) {
         if (g_input_mode == INPUT_S32_LE) {
             int32_t ibuf[2048 * 2];
             read_count = fread(ibuf, sizeof(int32_t), 2048 * 2, stdin);
-            if (read_count == 2048 * 2) {
-                // Convert to float [-1..1). 2147483648.0f avoids clipping at INT32_MIN.
+            if (read_count > 0) {
                 const float inv = 1.0f / 2147483648.0f;
-                for (size_t i = 0; i < 2048 * 2; i++) buf[i] = (float)ibuf[i] * inv;
+                for (size_t i = 0; i < read_count; i++) buf[i] = (float)ibuf[i] * inv;
             }
         } else {
             read_count = fread(buf, sizeof(float), 2048 * 2, stdin);
         }
-        if (read_count != 2048 * 2) {
+        
+        if (read_count == 0) {
             if (feof(stdin)) {
                 fprintf(stderr, "[MPX] Input EOF reached\n");
                 global_ringbuffer->shutdown = 1;
@@ -230,7 +232,7 @@ static void* input_thread_func(void *arg) {
             break;
         }
         
-        if (ringbuffer_write(global_ringbuffer, buf, 2048 * 2) < 0) {
+        if (ringbuffer_write(global_ringbuffer, buf, read_count) < 0) {
             global_ringbuffer->shutdown = 1;
             break;
         }
@@ -254,8 +256,10 @@ _Atomic(int) G_EnableScope = 0;
 float G_MeterInputCalibrationDB = 0.0f;
 float G_MPXTiltCalibrationUs = 0.0f; 
 float G_SpectrumInputCalibrationDB = 0.0f;
+float G_ScopeInputCalibrationDB = 0.0f;
 float G_MeterGain = 1.0f;
 float G_SpectrumGain = 1.0f;
+float G_ScopeGain = 1.0f;
 
 float G_MeterPilotScale = 1.0f;
 float G_MeterMPXScale = 100.0f;
@@ -444,26 +448,18 @@ static int get_json_int(const char* json, const char* key, int currentVal) {
     return (int)lroundf(f);
 }
 
-// Helper to find string values roughly
 static void get_json_channel_mode(const char* json) {
     if (!json) return;
     const char* key = "\"MPXChannel\"";
     char* pos = strstr((char*)json, key);
-    if (!pos) {
-        // Default if not present
-        return; 
-    }
+    if (!pos) return; 
+    
     pos += strlen(key);
     while (*pos && (isspace((unsigned char)*pos) || *pos == ':')) pos++;
     
-    // Check next few chars
-    if (strncasecmp(pos, "\"left\"", 6) == 0) {
-        g_channel_mode = CH_LEFT;
-    } else if (strncasecmp(pos, "\"right\"", 7) == 0) {
-        g_channel_mode = CH_RIGHT;
-    } else if (strncasecmp(pos, "\"auto\"", 6) == 0) {
-        g_channel_mode = CH_AUTO;
-    }
+    if (strncasecmp(pos, "\"left\"", 6) == 0) g_channel_mode = CH_LEFT;
+    else if (strncasecmp(pos, "\"right\"", 7) == 0) g_channel_mode = CH_RIGHT;
+    else if (strncasecmp(pos, "\"auto\"", 6) == 0) g_channel_mode = CH_AUTO;
 }
 
 static int update_config(void) {
@@ -498,6 +494,12 @@ static int update_config(void) {
         G_SpectrumGain = powf(10.0f, G_SpectrumInputCalibrationDB / 20.0f);
     }
 
+    float scopeGainDB = get_json_float(string, "ScopeInputCalibration", -9999.0f);
+    if (scopeGainDB > -9000.0f) {
+        G_ScopeInputCalibrationDB = scopeGainDB;
+        G_ScopeGain = powf(10.0f, G_ScopeInputCalibrationDB / 20.0f);
+    }
+
     G_MeterPilotScale = get_json_float(string, "MeterPilotScale", G_MeterPilotScale);
     G_MeterMPXScale = get_json_float(string, "MeterMPXScale", G_MeterMPXScale);
     G_MeterRDSScale = get_json_float(string, "MeterRDSScale", G_MeterRDSScale);
@@ -516,7 +518,6 @@ static int update_config(void) {
 
     G_EnableMpxLpf = get_json_int(string, "MPX_LPF_100kHz", G_EnableMpxLpf) ? 1 : 0;
     
-    // Channel Mode
     channel_mode_t oldMode = g_channel_mode;
     get_json_channel_mode(string);
     int modeChanged = (oldMode != g_channel_mode);
@@ -526,9 +527,7 @@ static int update_config(void) {
     if (G_SpectrumDecay > 1.0f) G_SpectrumDecay = 1.0f; 
     if (G_SpectrumDecay < 0.01f) G_SpectrumDecay = 0.01f;
 
-    fprintf(stderr, "[MPX-C] Config updated. Mode: %d\n", (int)g_channel_mode);
     free(string);
-    
     return modeChanged;
 }
 
@@ -824,8 +823,7 @@ int main(int argc, char **argv)
 
     if (argc >= 2) sr = atoi(argv[1]);
     const char *devName = (argc >= 3 && argv[2]) ? argv[2] : "Default";
-    // argv[2] is used as an "input format" selector by the server pipe.
-    // Supported: "float" (default), "s32" (signed 32-bit little endian).
+    
     if (devName) {
         if (!strcasecmp(devName, "s32") || !strcasecmp(devName, "s32_le") || !strcasecmp(devName, "s32le")) {
             g_input_mode = INPUT_S32_LE;
@@ -853,9 +851,8 @@ int main(int argc, char **argv)
 #endif
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    fprintf(stderr, "[MPX] ON-DEMAND DSP Mode | SR:%d FFT:%d UDP:%d | Features: Spectrum & Scope are now ON-DEMAND!\n", sr, fftSize, udpPort);
+    fprintf(stderr, "[MPX] ON-DEMAND DSP Mode | SR:%d FFT:%d UDP:%d | Features: Shifted Pre-Trigger Scope (Instant Off)\n", sr, fftSize, udpPort);
 
-    // Ringbuffer initialization
     global_ringbuffer = ringbuffer_create(RINGBUFFER_CAPACITY);
     if (!global_ringbuffer) {
         fprintf(stderr, "[MPX] Failed to create ringbuffer\n");
@@ -869,14 +866,32 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Buffers
-    float   *window    = (float*)malloc(sizeof(float) * fftSize);
-    Complex *fftBuf    = (Complex*)malloc(sizeof(Complex) * fftSize);
-    float   *smoothBuf = (float*)calloc(fftSize / 2, sizeof(float));
-    float   *scopeBuf  = (float*)calloc(1024, sizeof(float)); 
-    float   *in        = (float*)malloc(sizeof(float) * 2048 * 2);
+    float   *window          = (float*)malloc(sizeof(float) * fftSize);
+    Complex *fftBuf          = (Complex*)malloc(sizeof(Complex) * fftSize);
+    float   *smoothBuf       = (float*)calloc(fftSize / 2, sizeof(float));
+    float   *in              = (float*)malloc(sizeof(float) * 2048 * 2);
 
-    if (!window || !fftBuf || !smoothBuf || !scopeBuf || !in) {
+    // Double-Buffered Scope State Machine with Pre-Trigger Shift
+    float scopeRollingBuf[2048];
+    float scopeRollingRaw[2048];
+    float scopeOutputBuf[1024];
+    uint32_t scopeRollIdx = 0;
+    int scopeCaptureCount = 0;
+    int scopeTrigger = 0;
+    double scopeDecimator = 0.0;
+    
+    int triggerArmed = 0;
+    int silenceSampleCount = 0;
+    int isBurstMode = 0;
+    
+    int triggerHoldoffCounter = 0;
+    long samplesSinceLastTrigger = 0;
+
+    memset(scopeRollingBuf, 0, sizeof(scopeRollingBuf));
+    memset(scopeRollingRaw, 0, sizeof(scopeRollingRaw));
+    memset(scopeOutputBuf, 0, sizeof(scopeOutputBuf));
+
+    if (!window || !fftBuf || !smoothBuf || !in) {
         fprintf(stderr, "[MPX] Memory allocation failed\n");
         return 1;
     }
@@ -884,51 +899,26 @@ int main(int argc, char **argv)
     for (int i = 0; i < fftSize; i++) 
         window[i] = 0.5f * (1.0f - cosf(2.0f * M_PI * i / (fftSize - 1)));
 
-    // Init DSP Modules
-    DCBlocker dcBlocker; 
-    DCBlocker_Init(&dcBlocker);
-    TiltCorrector tilt; 
-    Tilt_Init(&tilt, (float)sr); 
+    DCBlocker dcBlocker; DCBlocker_Init(&dcBlocker);
+    TiltCorrector tilt; Tilt_Init(&tilt, (float)sr); 
+    MpxDemodulator demod; MpxDemod_Init(&demod, sr);
     
-    MpxDemodulator demod; 
-    MpxDemod_Init(&demod, sr);
-    
-    BiQuadFilter mpxPeakLpf; 
-    BiQuad_Init(&mpxPeakLpf);
+    BiQuadFilter mpxPeakLpf; BiQuad_Init(&mpxPeakLpf);
     float cutoff = 100000.0f; 
     if (cutoff > 0.45f*sr) cutoff = 0.45f*sr;
     BiQuad_LowPass(&mpxPeakLpf, (float)sr, cutoff, 0.707f);
     
-    TruePeakN tpN; 
-    TruePeakN_Init(&tpN);
-    PeakHoldRelease mpxEnv; 
-    PeakHoldRelease_Init(&mpxEnv, sr, 200.0f, 1500.0f);
+    TruePeakN tpN; TruePeakN_Init(&tpN);
+    PeakHoldRelease mpxEnv; PeakHoldRelease_Init(&mpxEnv, sr, 200.0f, 1500.0f);
 
     float bs412_power = 0.0f;
     float bs412_alpha = exp_alpha_from_tau((float)sr, 60.0f);
     const float BS412_REF_POWER = 180.5f;
 
-    // Oscilloscope logic
-    int scopeIndex = 0;
-    int scopeTrigger = 0;
-    double scopeDecimator = 0.0;
-    
-    int triggerArmed = 0;
-    int silenceSampleCount = 0;
-    int isBurstMode = 0;
-    const float SILENCE_THRES = 0.05f;
-    const int MIN_SILENCE_SAMPLES = 2000;
-    int triggerHoldoffCounter = 0;
-    int triggerHoldoffLimit = (int)(sr * 0.020);
-    long samplesSinceLastTrigger = 0;
-    long autoTriggerLimit = (long)(sr * 0.150);
-
-    // Channel lock
     int active_channel = 0, channel_locked = 0;
     double energyL = 0, energyR = 0; 
     int energy_samples = 0;
 
-    // Display smoothing
     float smoothP = 0.0f, smoothR = 0.0f, smoothB = -99.0f;
 
     int counter = 0;
@@ -939,13 +929,9 @@ int main(int argc, char **argv)
 
     fprintf(stderr, "[MPX] Waiting for audio stream...\n");
 
-    // ============================================================
-    // MAIN DSP LOOP - ON-DEMAND PROCESSING
-    // ============================================================
     while (ringbuffer_read(global_ringbuffer, in, 2048 * 2) == 0) {
 
         check_udp_messages();
-        
         int spectrumEnabled = atomic_load(&G_EnableSpectrum);
         int scopeEnabled = atomic_load(&G_EnableScope);
 
@@ -953,12 +939,8 @@ int main(int argc, char **argv)
         if (configCheckCounter > 50) {
             int modeChanged = update_config();
             if (modeChanged) {
-                 // Reset channel detection if mode changed (e.g. from Auto -> Left, or Left -> Auto)
-                 channel_locked = 0;
-                 energy_samples = 0;
-                 energyL = 0; energyR = 0;
+                 channel_locked = 0; energy_samples = 0; energyL = 0; energyR = 0;
             }
-            
             Tilt_Update(&tilt, G_MPXTiltCalibrationUs);
             outputSampleThreshold = (sr * G_SpectrumSendInterval) / 1000;
             configCheckCounter = 0;
@@ -967,19 +949,13 @@ int main(int argc, char **argv)
         for (int i = 0; i < 2048; i++) {
             float vL = in[i*2], vR = in[i*2+1];
 
-            // Channel Selection Logic
             if (g_channel_mode == CH_LEFT) {
-                active_channel = 0;
-                channel_locked = 1;
+                active_channel = 0; channel_locked = 1;
             } else if (g_channel_mode == CH_RIGHT) {
-                active_channel = 1;
-                channel_locked = 1;
+                active_channel = 1; channel_locked = 1;
             } else {
-                // Auto Mode
                 if (!channel_locked) {
-                    energyL += vL*vL; 
-                    energyR += vR*vR; 
-                    energy_samples++;
+                    energyL += vL*vL; energyR += vR*vR; energy_samples++;
                     if (energy_samples >= 4096) { 
                         active_channel = (energyR > energyL * 1.5) ? 1 : 0; 
                         channel_locked = 1; 
@@ -988,14 +964,13 @@ int main(int argc, char **argv)
             }
 
             float vRaw = (active_channel == 0 ? vL : vR) * BASE_PREAMP;
-
             float vNoDc = DCBlocker_Process(&dcBlocker, vRaw);
             float vTilt = Tilt_Process(&tilt, vNoDc);
 
             float vMeters = vTilt * G_MeterGain;
             float vSpec = vTilt * G_SpectrumGain;
 
-            // === ON-DEMAND SPECTRUM PROCESSING ===
+            // === SPECTRUM ===
             if (spectrumEnabled) {
                 if (fftIndex < fftSize) {
                     fftBuf[fftIndex].r = vSpec * window[fftIndex]; 
@@ -1004,74 +979,80 @@ int main(int argc, char **argv)
                 }
             }
 
-            // === ON-DEMAND OSCILLOSCOPE PROCESSING ===
+            // === DOUBLE-BUFFERED SHIFTED SCOPE STATE MACHINE ===
             if (scopeEnabled) {
-                if (fabsf(vRaw) < SILENCE_THRES) {
-                    if (silenceSampleCount < MIN_SILENCE_SAMPLES + 100) 
-                        silenceSampleCount++;
-                    if (silenceSampleCount >= MIN_SILENCE_SAMPLES) 
-                        isBurstMode = 1; 
-                } else {
-                    silenceSampleCount = 0;
-                }
-
-                if (triggerHoldoffCounter > 0) {
-                    triggerHoldoffCounter--;
-                } else if (!scopeTrigger) {
-                    samplesSinceLastTrigger++;
-                    int fire = 0;
-                    if (samplesSinceLastTrigger > autoTriggerLimit) {
-                        fire = 1;
+                if (scopeDecimator >= SCOPE_DECIMATION) {
+                    scopeDecimator -= SCOPE_DECIMATION;
+                    
+                    float decSample = vTilt * G_ScopeGain;
+                    float decRaw = vRaw;
+                    
+                    scopeRollingBuf[scopeRollIdx & 2047] = decSample;
+                    scopeRollingRaw[scopeRollIdx & 2047] = decRaw;
+                    scopeRollIdx++;
+                    
+                    if (fabsf(decRaw) < 0.05f) {
+                        if (silenceSampleCount < 500) silenceSampleCount++;
+                        if (silenceSampleCount >= 400) isBurstMode = 1;
                     } else {
-                        if (isBurstMode) {
-                            if (!triggerArmed && vRaw > 0.15f) { 
-                                fire = 1; 
-                                isBurstMode = 0; 
+                        silenceSampleCount = 0;
+                    }
+                    
+                    if (scopeTrigger) {
+                        scopeCaptureCount++;
+                        // 128 samples Pre-Trigger shift
+                        if (scopeCaptureCount >= (1024 - 128)) {
+                            uint32_t startIdx = scopeRollIdx - 1024;
+                            for (int k = 0; k < 1024; k++) {
+                                scopeOutputBuf[k] = scopeRollingBuf[(startIdx + k) & 2047];
                             }
+                            scopeTrigger = 0;
+                            triggerHoldoffCounter = 740;
+                        }
+                    } else if (triggerHoldoffCounter > 0) {
+                        triggerHoldoffCounter--;
+                    } else {
+                        samplesSinceLastTrigger++;
+                        int fire = 0;
+                        
+                        if (samplesSinceLastTrigger > 5500) {
+                            fire = 1;
                         } else {
-                            if (!triggerArmed) { 
-                                if (vRaw > 0.2f) triggerArmed = 1; 
-                            }
-                            else { 
-                                if (vRaw < 0.0f) { 
-                                    fire = 1; 
-                                    triggerArmed = 0; 
-                                } 
+                            if (isBurstMode) {
+                                if (!triggerArmed && decRaw > 0.15f) {
+                                    fire = 1;
+                                    isBurstMode = 0;
+                                }
+                            } else {
+                                if (!triggerArmed && decRaw < -0.05f) {
+                                    triggerArmed = 1;
+                                } else if (triggerArmed && decRaw >= 0.0f) {
+                                    float prevRaw = scopeRollingRaw[(scopeRollIdx - 2) & 2047];
+                                    if (prevRaw < 0.0f) {
+                                        fire = 1;
+                                        triggerArmed = 0;
+                                    }
+                                }
                             }
                         }
-                    }
-                    if (fire) {
-                        scopeTrigger = 1;
-                        samplesSinceLastTrigger = 0;
-                        scopeIndex = 0;
-                        scopeDecimator = SCOPE_DECIMATION;
-                        triggerArmed = 0; 
-                    }
-                }
-
-                if (scopeTrigger) {
-                    if (scopeIndex < 1024) {
-                        if (scopeDecimator >= SCOPE_DECIMATION) {
-                            scopeDecimator -= SCOPE_DECIMATION;
-                            scopeBuf[scopeIndex++] = vTilt; 
+                        
+                        if (fire) {
+                            scopeTrigger = 1;
+                            scopeCaptureCount = 0;
+                            samplesSinceLastTrigger = 0;
+                            triggerArmed = 0;
                         }
-                        scopeDecimator += 1.0;
-                    } else {
-                        scopeTrigger = 0;
-                        triggerHoldoffCounter = triggerHoldoffLimit;
                     }
                 }
+                scopeDecimator += 1.0;
             }
 
-            // === ALWAYS-RUNNING CORE DSP ===
             float vScaled = vMeters * G_MeterMPXScale;
             bs412_power += ((vScaled*vScaled) - bs412_power) * bs412_alpha;
-
             float vPeak = vMeters;
             if (G_EnableMpxLpf) vPeak = BiQuad_Process(&mpxPeakLpf, vPeak);
             float tp = TruePeakN_Process(&tpN, vPeak, G_TruePeakFactor);
             float envPeak = PeakHoldRelease_Process(&mpxEnv, tp);
-
             MpxDemod_Process(&demod, vMeters);
 
             counter++;
@@ -1090,11 +1071,9 @@ int main(int argc, char **argv)
 
                 printf("{");
                 
-                // === CONDITIONAL SPECTRUM OUTPUT ===
                 if (spectrumEnabled) {
                     if (fftIndex >= fftSize) {
                         QuickFFT(fftBuf, fftSize);
-                        
                         printf("\"s\":[");
                         for (int k = 0; k < maxBin; k++) {
                             float mag = hypotf(fftBuf[k].r, fftBuf[k].i);
@@ -1103,7 +1082,6 @@ int main(int argc, char **argv)
                                 smoothBuf[k] = smoothBuf[k] * (1.0f - G_SpectrumAttack) + linearAmp * G_SpectrumAttack;
                             else 
                                 smoothBuf[k] = smoothBuf[k] * (1.0f - G_SpectrumDecay) + linearAmp * G_SpectrumDecay;
-                            
                             printf("%.4f", smoothBuf[k] * 15.0f);
                             if (k < maxBin - 1) printf(",");
                         }
@@ -1116,11 +1094,10 @@ int main(int argc, char **argv)
                     printf("\"s\":[],");
                 }
                 
-                // === CONDITIONAL OSCILLOSCOPE OUTPUT ===
                 if (scopeEnabled) {
                     printf("\"o\":[");
                     for (int k = 0; k < 1024; k++) {
-                        printf("%.4f", scopeBuf[k]);
+                        printf("%.4f", scopeOutputBuf[k]);
                         if (k < 1023) printf(",");
                     }
                     printf("],");
@@ -1136,12 +1113,10 @@ int main(int argc, char **argv)
         }
     }
 
-    // Shutdown
     fprintf(stderr, "[MPX] Shutting down...\n");
     pthread_join(input_thread_id, NULL);
     
     free(smoothBuf);
-    free(scopeBuf);
     free(window);
     free(fftBuf);
     free(in);

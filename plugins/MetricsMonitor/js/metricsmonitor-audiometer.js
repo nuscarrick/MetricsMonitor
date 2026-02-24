@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.4)   //
+//  metricsmonitor-audiometer.js                    (V2.4a)  //
 //                                                           //
-//  by Highpoint               last update: 23.02.2026       //
+//  by Highpoint               last update: 24.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -31,7 +31,8 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.5;    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
@@ -457,11 +458,11 @@ function mmCompute5BandLevels(freqData, ctxSampleRate, analyserFftSize) {
 
   // Use separated ~1-octave bands centered closely around the target frequencies.
   return [
-    getPeakInBand(45, 90),       // Band 1: Center ~64 Hz
-    getPeakInBand(180, 360),     // Band 2: Center ~256 Hz
-    getPeakInBand(700, 1400),    // Band 3: Center ~1 kHz
-    getPeakInBand(2800, 5600),   // Band 4: Center ~4 kHz
-    getPeakInBand(7000, 14000)   // Band 5: Center ~10 kHz
+    getPeakInBand(45, 180),       // Band 1: Center ~64 Hz
+    getPeakInBand(240, 510),     // Band 2: Center ~256 Hz
+    getPeakInBand(600, 2000),    // Band 3: Center ~1 kHz
+    getPeakInBand(2100, 5600),   // Band 4: Center ~4 kHz
+    getPeakInBand(5700, 16000)   // Band 5: Center ~10 kHz
   ];
 }
 

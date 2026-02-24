@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.4)  //
+//  metricsmonitor-meters.js                        (V2.4a)  //
 //                                                           //
-//  by Highpoint               last update: 23.02.2026       //
+//  by Highpoint               last update: 24.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -16,7 +16,7 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
@@ -31,8 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
@@ -122,6 +123,10 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     let stereoDataR = null;
     let stereoAnimationId = null;
     let stereoSetupIntervalId = null;
+    
+    // Smoothing state for stereo meters
+    let smoothedLevelL = 0;
+    let smoothedLevelR = 0;
 
     // WebSocket
     let mpxSocket = null;
@@ -648,6 +653,27 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // ==========================================================
     // Audio setup & animation (ROBUST VERSION)
     // ==========================================================
+    const METER_MAX_DB = 5;
+    const METER_MIN_DB = -35;
+    const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
+
+    // Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
+    function amplitudeToMeterPercent(amplitude) {
+        // Prevent log(0) calculation error
+        if (amplitude < 0.00001) return 0;
+        
+        const linear = amplitude * StereoBoost;
+        
+        // Calculate physically accurate decibel value (dBFS)
+        const db = 20 * Math.log10(linear);
+
+        // Map to the 0-100% visual scale range (+5 dB to -35 dB)
+        if (db <= METER_MIN_DB) return 0;
+        if (db >= METER_MAX_DB) return 100;
+
+        return ((db - METER_MIN_DB) / METER_RANGE) * 100;
+    }
+
     function setupAudioMeters() {
         if (
             typeof Stream === "undefined" ||
@@ -677,6 +703,10 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 stereoAnalyserR = null;
                 stereoDataL = null;
                 stereoDataR = null;
+                
+                // Reset smoothing arrays when context resets
+                smoothedLevelL = 0;
+                smoothedLevelR = 0;
             }
 
             // 2. Ensure Analysers exist - Switch to 32-bit floats
@@ -757,20 +787,24 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 if (absR > maxR) maxR = absR;
             }
 
-            // Convert linear amplitude to true float representation
-            const linearL = maxL * StereoBoost;
-            const linearR = maxR * StereoBoost;
+            // Convert accurate physical peak level to our UI percentage scale based on Log/dB
+            const rawTargetPercentL = amplitudeToMeterPercent(maxL);
+            const rawTargetPercentR = amplitudeToMeterPercent(maxR);
 
-            // Logarithmic calculation is now exactly precise due to floating point data
-            const dBL = linearL > 0.00001 ? 20 * Math.log10(linearL) : -100;
-            const dBR = linearR > 0.00001 ? 20 * Math.log10(linearR) : -100;
+            // Apply asymmetric smoothing: fast attack, slow smooth decay
+            const attack = 0.8;
+            const decay = 0.15; // Controls how fast the visual meter smoothly drops
 
-            // Map the dB range (-35 dB to +5 dB, total 40 dB range) to the 0-100 percentage scale
-            let levelL = ((dBL + 35) / 40) * 100;
-            let levelR = ((dBR + 35) / 40) * 100;
+            smoothedLevelL += (rawTargetPercentL > smoothedLevelL) 
+                ? (rawTargetPercentL - smoothedLevelL) * attack 
+                : (rawTargetPercentL - smoothedLevelL) * decay;
 
-            levelL = Math.min(100, Math.max(0, levelL));
-            levelR = Math.min(100, Math.max(0, levelR));
+            smoothedLevelR += (rawTargetPercentR > smoothedLevelR) 
+                ? (rawTargetPercentR - smoothedLevelR) * attack 
+                : (rawTargetPercentR - smoothedLevelR) * decay;
+
+            let levelL = Math.min(100, Math.max(0, smoothedLevelL));
+            let levelR = Math.min(100, Math.max(0, smoothedLevelR));
 
             levels.left = levelL;
             levels.right = levelR;

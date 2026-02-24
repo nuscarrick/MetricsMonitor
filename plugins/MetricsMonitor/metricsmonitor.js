@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.4)   //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.4a)   //
 //                                                             //
-//  by Highpoint               last update: 23.02.2026         //
+//  by Highpoint               last update: 24.02.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -16,7 +16,7 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
@@ -31,8 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
@@ -45,7 +46,7 @@ const PeakMode = "dynamic";    // Do not touch - this value is automatically upd
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.4";
+  const plugin_version = "2.4a";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
@@ -379,6 +380,13 @@ function syncTextWebSocketMode(isInitial) {
 }
 
   function cleanupCurrentMode() {
+    const mainContainerId = "level-meter-container";
+
+    // IMPORTANT: Destroy old module instances from the main container to stop their heartbeats
+    if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) window.MetricsAnalyzer.destroy(mainContainerId);
+    if (window.MetricsScope && window.MetricsScope.destroy) window.MetricsScope.destroy(mainContainerId);
+    if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) window.MetricsSignalAnalyzer.destroy(mainContainerId);
+
     // If ANY overlay is visible (including scope/canvas 5), we MUST keep meters alive
     if (isCanvasVisible) {
       // Re-enable meters WebSocket if switching between overlays
@@ -388,20 +396,21 @@ function syncTextWebSocketMode(isInitial) {
       return; 
     }
 
-    // Only fully cleanup if NO overlay is visible
+    // Only fully cleanup websockets if NO overlay is visible
     if (mode === 1 && window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
     if (mode === 2 && window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
-    if (mode !== 1 && mode !== 2 && window.MetricsAnalyzer?.cleanup && window.MetricsMeters?.cleanup) {
-      window.MetricsAnalyzer.cleanup();
-      window.MetricsMeters.cleanup();
+    if (mode !== 1 && mode !== 2) {
+      if (window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
+      if (window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
     }
+    if (mode !== 5 && window.MetricsScope?.cleanup) window.MetricsScope.cleanup();
   }
 
   function switchModeWithFade(nextMode) {
     const meters = document.getElementById("level-meter-container");
     if (!meters) {
+      cleanupCurrentMode(); // Destroy old instances first
       mode = nextMode;
-      cleanupCurrentMode();
       buildMeters();
       syncTextWebSocketMode(false);
       return;
@@ -417,8 +426,8 @@ function syncTextWebSocketMode(isInitial) {
     meters.style.opacity = "0";
 
     setTimeout(() => {
+      cleanupCurrentMode(); // Destroy old instances first
       mode = nextMode;
-      cleanupCurrentMode();
       buildMeters();
       syncTextWebSocketMode(false);
 
@@ -763,7 +772,7 @@ function syncTextWebSocketMode(isInitial) {
     if (activeCanvasMode == null) activeCanvasMode = pickInitialCanvasMode();
 
     isCanvasVisible = !isCanvasVisible;
-    cleanupCurrentMode(); // CRITICAL: This now respects isCanvasVisible to keep meters alive
+    cleanupCurrentMode(); // Destroys instance gracefully
 
     const button = document.getElementById("mpx-signal-toggle-button");
     const mmContainerCombo = document.getElementById("mm-mpx-combo-flex");
@@ -1396,78 +1405,8 @@ if (window.MetricsMeters && window.MetricsMeters.initMeters) {
         }
       }
 
-      if (attempts >= MAX_ATTEMPTS) { mmLog('warn', 'AutoEnableSpectrum: Timeout! Button was not activated or not found.'); clearInterval(interval); }
+      if (attempts >= MAX_ATTEMPTS) { mmLog('warn', 'AutoEnableSpectrum: Timeout! Button was not found or active.'); clearInterval(interval); }
     }, 500);
   }
-
-(function installMpxDataListener() {
-  if (window.MetricsMonitor._mpxListenerInstalled) return;
-  window.MetricsMonitor._mpxListenerInstalled = true;
-
-  window.mpxPeakVal = 0;
-  window.pilotPeakVal = 0;
-  window.rdsPeakVal = 0;
-  window.noiseFloorVal = 0;
-  window.websocketRdsActive = false;
-
-  window.mpxDevPeakRawKHz = 0;
-  window.mpxDevPpmKHz = 0;
-  window.modPower_dBr = null;
-  window.devExceedPct = 0;
-
-  if (!window.dataPluginsWsPromise) { mmLog("warn", "MPX listener: dataPluginsWsPromise not found"); return; }
-
-  window.dataPluginsWsPromise.then((ws) => {
-    if (!ws) { mmLog("error", "MPX listener: dataPluginsWs missing"); return; }
-
-    ws.addEventListener("message", (evt) => {
-      let msg; try { msg = JSON.parse(evt.data); } catch { return; }
-      if (!msg || msg.type !== "MPX") return;
-
-      if (typeof msg.peak === "number") mpxPeakVal = msg.peak;
-      if (typeof msg.devPeakRawKHz === "number") mpxDevPeakRawKHz = msg.devPeakRawKHz;
-      if (typeof msg.devPpmKHz === "number") mpxDevPpmKHz = msg.devPpmKHz;
-      if (typeof msg.modPower_dBr === "number") modPower_dBr = msg.modPower_dBr;
-      if (typeof msg.devExceedPct === "number") devExceedPct = msg.devExceedPct;
-
-      pilotPeakVal  = msg.pilot || 0;
-      rdsPeakVal    = msg.rds   || 0;
-      noiseFloorVal = msg.noise || noiseFloorVal;
-      websocketRdsActive = true;
-
-      if (typeof updateMpxTotalFromSpectrum === "function") updateMpxTotalFromSpectrum();
-    });
-
-    mmLog("log", "MPX data listener installed");
-  });
-})();
-
-  (function fixSpectrumButtons() {
-    const fixCss = `
-        #sdr-graph-button-container .rectangular-spectrum-button,
-        #sdr-graph-button-container button { z-index: 9999 !important; }
-        .canvas-container[style*="visible"] #sdr-graph-button-container {
-             top: 10px !important;
-             position: absolute !important;
-             width: 100%;
-             pointer-events: none;
-        }
-        .canvas-container[style*="visible"] #sdr-graph-button-container button { pointer-events: auto; }
-    `;
-    const style = document.createElement('style');
-    style.id = "mm-spectrum-fix-css";
-    style.textContent = fixCss;
-    document.head.appendChild(style);
-
-    const observer = new MutationObserver(() => {
-        const sdrGraph = document.getElementById('sdr-graph');
-        const btnContainer = document.getElementById('sdr-graph-button-container');
-        if (sdrGraph && sdrGraph.style.display !== 'none' && btnContainer) {
-            btnContainer.style.zIndex = "8";
-            btnContainer.style.display = "block";
-        }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  })();
 
 })();

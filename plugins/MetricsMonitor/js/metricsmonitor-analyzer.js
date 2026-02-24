@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.4)   //
+//  metricsmonitor-analyzer.js                      (V2.4a)  //
 //                                                           //
-//  by Highpoint               last update: 23.02.2026       //
+//  by Highpoint               last update: 24.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -16,7 +16,7 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Line 1 (Virtual Audio Cable)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
 const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
@@ -31,8 +31,9 @@ const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically 
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
@@ -43,7 +44,7 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-
+
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
 // Default mode is Spectrum only (oscilloscope moved to metricsmonitor-scope.js).
@@ -73,6 +74,8 @@ const MpxHub = (() => {
         try { msg = JSON.parse(evt.data); } catch { return; }
         if (!msg || typeof msg !== "object" || msg.type !== "MPX") return;
 		
+		// console.log(msg); 
+
         // Pass the entire message (spectrum only used here)
         listeners.forEach(fn => {
           try { fn(msg); } catch (e) { /* ignore */ }
@@ -859,4 +862,320 @@ function drawHoverCursor() {
 
     if (mpxSmoothSpectrum.length === 0) {
       mpxSmoothSpectrum = new Array(arr.length).fill(MPX_DB_MIN_DEFAULT);
-    
+    }
+
+    const len = Math.min(arr.length, mpxSmoothSpectrum.length);
+    for (let i = 0; i < len; i++) {
+      if (arr[i] > mpxSmoothSpectrum[i]) {
+        mpxSmoothSpectrum[i] =
+          (mpxSmoothSpectrum[i] * (SpectrumAttackLevel - 1) + arr[i]) / SpectrumAttackLevel;
+      } else {
+        mpxSmoothSpectrum[i] =
+          (mpxSmoothSpectrum[i] * (SpectrumDecayLevel - 1) + arr[i]) / SpectrumDecayLevel;
+      }
+    }
+    if (arr.length > len) {
+      for (let i = len; i < arr.length; i++) mpxSmoothSpectrum[i] = arr[i];
+    }
+    mpxSpectrum = mpxSmoothSpectrum.slice();
+
+    drawMpxSpectrum();
+  }
+
+  //////////////////////////////////////////////////////////////////
+  // Resize Handler
+  //////////////////////////////////////////////////////////////////
+  function resize() {
+    if (!canvas || !canvas.parentElement) return;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const w = rect.width > 0 ? rect.width : 400;
+    const h = rect.height > 0 ? rect.height : 240;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    drawMpxSpectrum();
+  }
+
+  //////////////////////////////////////////////////////////////////
+  // Mouse Event Setup
+  //////////////////////////////////////////////////////////////////
+  function setupMouseEvents() {
+    canvas.addEventListener("mouseenter", () => {
+      KeyboardHub.setActive(instance);
+      updateCursor();
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const wasHovering = isHoveringMagnifier;
+      if (zoomLevel === 1.0 && zoomLevelY <= MIN_ZOOM_Y) {
+        isHoveringMagnifier =
+          mouseX >= magnifierArea.x && mouseX <= magnifierArea.x + magnifierArea.width &&
+          mouseY >= magnifierArea.y && mouseY <= magnifierArea.y + magnifierArea.height;
+      } else {
+        isHoveringMagnifier = false;
+      }
+
+      if (isHoveringMagnifier && !wasHovering) showTooltip();
+      else if (!isHoveringMagnifier && wasHovering) hideTooltip();
+      updateCursor();
+
+      if (!isDragging) {
+        hoverX = mouseX;
+        drawMpxSpectrum();
+      }
+
+      if (!isDragging) return;
+      if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) hasDragged = true;
+      if (!hasDragged) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (zoomLevel > 1.0) {
+        const visibleRange = visibleEnd - visibleStart;
+        const pixelsPerUnit = (canvas.clientWidth - OFFSET_X) / visibleRange;
+        const delta = -(e.clientX - dragStartX) / pixelsPerUnit;
+        viewCenter = dragStartCenter + delta;
+      }
+
+      if (zoomLevelY > MIN_ZOOM_Y) {
+        const deltaDb = (e.clientY - dragStartY) / (((canvas.clientHeight - TOP_MARGIN - BOTTOM_MARGIN) * Y_STRETCH) / (visibleDbMax - visibleDbMin));
+        zoomCenterDB = dragStartCenterY + deltaDb;
+      }
+
+      updateZoomBounds();
+      updateZoomBoundsY();
+      drawMpxSpectrum();
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      hoverX = null;
+      if (isHoveringMagnifier) {
+        isHoveringMagnifier = false;
+        hideTooltip();
+      }
+      if (isDragging) {
+        isDragging = false;
+        hasDragged = false;
+        updateCursor();
+      }
+      drawMpxSpectrum();
+    });
+
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isHoveringMagnifier || ctrlKeyPressed) {
+        isHoveringMagnifier = false;
+        hideTooltip();
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const zoomDelta = e.deltaY > 0 ? 1 / (e.ctrlKey ? ZOOM_STEP_Y : ZOOM_STEP) : (e.ctrlKey ? ZOOM_STEP_Y : ZOOM_STEP);
+
+      if (e.ctrlKey) {
+        const normY = (mouseY - TOP_MARGIN) / ((canvas.clientHeight - TOP_MARGIN - BOTTOM_MARGIN) * Y_STRETCH);
+        const range = getDisplayRange();
+        const dbAtMouse = range.max - normY * (range.max - range.min);
+        setZoomY(zoomLevelY * zoomDelta, dbAtMouse);
+      } else {
+        const unitAtMouse = visibleStart + ((mouseX - OFFSET_X) / (canvas.clientWidth - OFFSET_X)) * (visibleEnd - visibleStart);
+        setZoom(zoomLevel * zoomDelta, unitAtMouse);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || isHoveringMagnifier) return;
+      e.preventDefault();
+      e.stopPropagation();
+      isDragging = true;
+      hasDragged = false;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragStartCenter = viewCenter;
+      dragStartCenterY = zoomCenterDB;
+      updateCursor();
+    });
+
+    canvas.addEventListener("mouseup", (e) => {
+      if (e.button === 0 && isDragging) {
+        isDragging = false;
+        updateCursor();
+        if (hasDragged) e.stopPropagation();
+      }
+    });
+
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zoomReset();
+    });
+
+    canvas.addEventListener("click", (e) => {
+      if (isHoveringMagnifier || hasDragged) {
+        e.stopPropagation();
+        hasDragged = false;
+      }
+    });
+  }
+
+  //////////////////////////////////////////////////////////////////
+  // Keyboard Event Handlers
+  //////////////////////////////////////////////////////////////////
+  function onGlobalKeyDown(e) {
+    if (e.target?.tagName === 'INPUT' || e.target?.tagName === 'TEXTAREA' || e.target?.isContentEditable) return;
+
+    if (e.key === "Control" && !ctrlKeyWasPressed) {
+      ctrlKeyPressed = true;
+      ctrlKeyWasPressed = true;
+      if (!tooltipElement) showTooltip();
+      updateCursor();
+    }
+
+    if (!e.ctrlKey) return;
+
+    let handled = false;
+    switch (e.key) {
+      case "ArrowUp":    setZoom(zoomLevel * ZOOM_STEP, viewCenter); handled = true; break;
+      case "ArrowDown":  setZoom(zoomLevel / ZOOM_STEP, viewCenter); handled = true; break;
+      case "ArrowLeft":
+        if (zoomLevel > 1.0) {
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
+          setZoom(zoomLevel, viewCenter - panStep);
+        }
+        handled = true;
+        break;
+      case "ArrowRight":
+        if (zoomLevel > 1.0) {
+          const range = visibleEnd - visibleStart;
+          const panStep = range * 0.05;
+          setZoom(zoomLevel, viewCenter + panStep);
+        }
+        handled = true;
+        break;
+      case " ":
+        zoomReset();
+        handled = true;
+        break;
+    }
+
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+      hideTooltip();
+    }
+  }
+
+  function onGlobalKeyUp(e) {
+    if (e.key === "Control") {
+      ctrlKeyPressed = false;
+      ctrlKeyWasPressed = false;
+      hideTooltip();
+      updateCursor();
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////
+  // Lifecycle Management
+  //////////////////////////////////////////////////////////////////
+  const unsubscribe = MpxHub.subscribe(handleMpxArray);
+
+  function destroy() {
+    try { unsubscribe?.(); } catch (e) {}
+    hideTooltip();
+    try { parent.innerHTML = ""; } catch (e) {}
+    __instances.delete(instanceKey);
+    checkHeartbeatStatus();
+  }
+
+  const instance = {
+    id: instanceKey,
+    containerId,
+    wrap,
+    canvas,
+    resize,
+    zoomReset,
+    destroy,
+    _onGlobalKeyDown: onGlobalKeyDown,
+    _onGlobalKeyUp: onGlobalKeyUp,
+  };
+
+  KeyboardHub.installOnce();
+  setupMouseEvents();
+  __instances.set(instanceKey, instance);
+
+  checkHeartbeatStatus();
+
+  resize();
+  updateZoomBounds();
+  updateZoomBoundsY();
+  updateCursor();
+  drawMpxSpectrum();
+
+  return instance;
+}
+
+/////////////////////////////////////////////////////////////////
+// Public API
+/////////////////////////////////////////////////////////////////
+function init(containerId = "level-meter-container", options = {}) {
+  const existing = [...__instances.values()].find(i => i.containerId === containerId);
+  if (existing) {
+    try { existing.destroy(); } catch (e) {}
+  }
+  return createAnalyzerInstance(containerId, options);
+}
+
+function zoomReset(target) {
+  if (!target) {
+    __instances.forEach(i => i.zoomReset?.());
+    return;
+  }
+  const byKey = __instances.get(String(target));
+  if (byKey) return byKey.zoomReset?.();
+  const byContainer = [...__instances.values()].find(i => i.containerId === target);
+  if (byContainer) return byContainer.zoomReset?.();
+}
+
+function resize(target) {
+  if (!target) {
+    __instances.forEach(i => i.resize?.());
+    return;
+  }
+  const byKey = __instances.get(String(target));
+  if (byKey) return byKey.resize?.();
+  const byContainer = [...__instances.values()].find(i => i.containerId === target);
+  if (byContainer) return byContainer.resize?.();
+}
+
+function destroy(target) {
+  if (!target) {
+    [...__instances.values()].forEach(i => i.destroy?.());
+    return;
+  }
+  const byKey = __instances.get(String(target));
+  if (byKey) return byKey.destroy?.();
+  const byContainer = [...__instances.values()].find(i => i.containerId === target);
+  if (byContainer) return byContainer.destroy?.();
+}
+
+// Global Exports
+window.MetricsAnalyzer = window.MetricsAnalyzer || { cleanup: closeMpxSocket };
+window.MetricsAnalyzer.init = init;
+window.MetricsAnalyzer.zoomReset = zoomReset;
+window.MetricsAnalyzer.resize = resize;
+window.MetricsAnalyzer.destroy = destroy;
+
+})();

@@ -4,14 +4,11 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.4
-- Vertical marker lines at 16, 22, 54 and 60 kHz were added to the analyzer
-- 5-band audio display calibrated and adjusted
-- VU meter calibrated and adjusted
-- Fixed duplicate tooltip display on multipath icon
-- RF level meter now matches module 3
-- Tilt correction improved (thanks to AmateurAudioDude for the code)
-- Variable built in for delaying the analyzer, scope, and MPX output (see Configuration options) -> necessary for client-side audio synchronization
+## v2.4a
+- New variable ScopeInputCalibration added for calibrating the oscilloscope (see configuration options!)
+- The frame rate of the oscilloscope was significantly increased
+- Bandwidth of the 5-band audiometer adjusted
+- MPXcapture optimized for Linux
 
 ## Important note for this version: 
 
@@ -83,13 +80,14 @@ The following variables can be changed in the metricsmonitor.json config file:
     /* FFT / Spectrum Settings */
 	"fftSize": 512,                  //  Change the frequency sampling rate for the spectrum display. The higher the value (e.g. 1024, 2048, 4096), the better the frequency resolution, but also the higher the CPU load. The default and minimum value is 512.
 
-    /* Spectrum Visuals */
+    /* Spectrum & Scope Visuals */
     "SpectrumInputCalibration": 0,   //  Increase or decrease the value as needed to adjust the input for the spectrum. The default value is 0. 
 	"SpectrumAttackLevel": 3,        //  Response rate of the spectrum display as the signal increases. The default value is 3.
     "SpectrumDecayLevel": 15;        //  This variable determines the number of frames from which a smoothed spectrum is averaged from the raw spectrum. The larger the value, the stronger the smoothing; the smaller the value, the faster and less pronounced the smoothing. The default is 15.
 	"SpectrumSendInterval": 30,      //  Change the sampling frequency of the audio signal. The higher the frame rate (FPS), the more frequent the sampling and the higher the CPU load. The default is 15.
     "SpectrumYOffset": -40,          //  Set the +/- level value for the analyzing curve offset (default = -40)
     "SpectrumYDynamics": 2,          //  Set the +/- level value for the analyzing curve dynamic (peak indication / default = 2)
+	"ScopeInputCalibration": 0,      //  Increase or decrease the value as needed to adjust the input for the scope. The default value is 0. 
 
     /* Meter Gains */
 	"StereoBoost": 2,                //  If the audio signal is too weak, a gain factor for the audio display can be set here (2 - default).
@@ -167,9 +165,17 @@ If you have any questions, would like to report problems, or have suggestions fo
 <details>
 <summary>History</summary>
 
+### v2.4
+- Vertical marker lines at 16, 22, 54 and 60 kHz were added to the analyzer
+- 5-band audio display calibrated and adjusted
+- VU meter calibrated and adjusted
+- Fixed duplicate tooltip display on multipath icon
+- RF level meter now matches module 3
+- Tilt correction improved (thanks to AmateurAudioDude for the code)
+- Variable built in for delaying the analyzer, scope, and MPX output (see Configuration options) -> necessary for client-side audio synchronization
+
 ### v2.3d
 - Channel selection added for the MPX signal (left, right or auto)
-
 
 ### v2.3c
 - Alignment of scale values ​​adjusted
