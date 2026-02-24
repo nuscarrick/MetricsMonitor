@@ -140,6 +140,7 @@ You can test the plugin here:
 Option 1 - http://highpoint2000.selfhost.de:6080
 
 Option 3 - http://highpoint2000.selfhost.de:8080 
+           https://highpoint.fmtuner.org
 
 ## Important notes
 
