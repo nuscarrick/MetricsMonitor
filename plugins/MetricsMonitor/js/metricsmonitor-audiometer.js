@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.4a)  //
+//  metricsmonitor-audiometer.js                    (V2.4b)  //
 //                                                           //
-//  by Highpoint               last update: 24.02.2026       //
+//  by Highpoint               last update: 25.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -90,7 +90,7 @@ let smoothedLevelR = 0;
 // Peak Hold Configuration
 const PEAK_CONFIG = {
   smoothing: 0.85,
-  holdMs: 5000
+  holdMs: 3000
 };
 
 const peaks = {
@@ -458,11 +458,11 @@ function mmCompute5BandLevels(freqData, ctxSampleRate, analyserFftSize) {
 
   // Use separated ~1-octave bands centered closely around the target frequencies.
   return [
-    getPeakInBand(45, 180),       // Band 1: Center ~64 Hz
-    getPeakInBand(240, 510),     // Band 2: Center ~256 Hz
-    getPeakInBand(600, 2000),    // Band 3: Center ~1 kHz
-    getPeakInBand(2100, 5600),   // Band 4: Center ~4 kHz
-    getPeakInBand(5700, 16000)   // Band 5: Center ~10 kHz
+    getPeakInBand(45, 100),      // Band 1: Center ~64 Hz
+    getPeakInBand(140, 560),     // Band 2: Center ~256 Hz
+    getPeakInBand(590, 2050),    // Band 3: Center ~1 kHz
+    getPeakInBand(2090, 5600),   // Band 4: Center ~4 kHz
+    getPeakInBand(5650, 16000)   // Band 5: Center ~10 kHz
   ];
 }
 
@@ -572,9 +572,9 @@ function setupAudioEQ() {
 }
 
 // Logarithmic dB scale parameters for the UI Meter
-// Scale goes from +5dB down to -35dB (Total range: 40dB)
+// Scale goes from +5dB down to -26dB (Total range: 31dB)
 const METER_MAX_DB = 5;
-const METER_MIN_DB = -35;
+const METER_MIN_DB = -26;
 const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
 
 // Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
@@ -588,7 +588,7 @@ function amplitudeToMeterPercent(amplitude) {
   // Calculate physically accurate decibel value (dBFS)
   const db = 20 * Math.log10(linear);
 
-  // Map to the 0-100% visual scale range (+5 dB to -35 dB)
+  // Map to the 0-100% visual scale range (+5 dB to -26 dB)
   if (db <= METER_MIN_DB) return 0;
   if (db >= METER_MAX_DB) return 100;
 
@@ -598,8 +598,14 @@ function amplitudeToMeterPercent(amplitude) {
 function startEqAnimation() {
   if (eqAnimationId) cancelAnimationFrame(eqAnimationId);
   
+  // ==========================================
+  // EQ ATTACK & DECAY CONTROLS
+  // ==========================================
+  const eqAttack = 0.8;   // Fast attack (1.0 = instant)
+  const eqDecay  = 0.06;  // Slow decay/release (lower = slower)
+  
   const EQ_NOISE_GATE = 30; 
-  const bandWeights = [1.0, 1.05, 1.15, 1.3, 1.6];
+  const bandWeights = [1.03, 1.05, 1.15, 1.3, 1.6];
 
   const loop = () => {
     // If context is suspended or closed
@@ -635,14 +641,20 @@ function startEqAnimation() {
         
         let normalized = Math.pow(rawValue, 1.2);
         
-        // Multiply by 87.5 so that a full signal perfectly aligns with the visual 0 dB line (35 / 40 range mapping)
-        targetPercent = normalized * 87.5 * AudioMeterBoost;
+        // Multiply by 83.87 so that a full signal perfectly aligns with the visual 0 dB line (26 / 31 range mapping)
+        targetPercent = normalized * 83.87 * AudioMeterBoost;
       }
 
       if (targetPercent > 100) targetPercent = 100;
       if (targetPercent < 0) targetPercent = 0;
 
-      eqLevels[i] += (targetPercent - eqLevels[i]) * 0.4;
+      // Split logic for Attack (rising) and Decay/Release (falling)
+      if (targetPercent > eqLevels[i]) {
+        eqLevels[i] += (targetPercent - eqLevels[i]) * eqAttack;
+      } else {
+        eqLevels[i] += (targetPercent - eqLevels[i]) * eqDecay;
+      }
+
       if (eqLevels[i] < 0.5) eqLevels[i] = 0;
       updateMeter(`eq${i + 1}-meter`, eqLevels[i]);
     }
@@ -671,8 +683,8 @@ function startEqAnimation() {
       const rawTargetPercentR = amplitudeToMeterPercent(maxR);
 
       // Apply asymmetric smoothing: fast attack, slow smooth decay
-      const attack = 0.8;
-      const decay = 0.15; // Controls how fast the visual meter smoothly drops
+      const attack = 0.8;   // Fast attack (1.0 = instant)
+      const decay = 0.6;    // Slow decay/release (lower = slower) 
 
       smoothedLevelL += (rawTargetPercentL > smoothedLevelL) 
           ? (rawTargetPercentL - smoothedLevelL) * attack 
@@ -737,9 +749,7 @@ function initAudioMeter(containerOrId = "level-meter-container") {
     "-10",
     "-15",
     "-20",
-    "-25",
-    "-30",
-    "-35 dB"
+    "-26 dB"
   ];
   
   createLevelMeter("eq-left-meter", "LEFT", stereoGroup, stereoScale);

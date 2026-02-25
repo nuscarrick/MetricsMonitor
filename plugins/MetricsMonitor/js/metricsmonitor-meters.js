@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.4a)  //
+//  metricsmonitor-meters.js                        (V2.4b)  //
 //                                                           //
-//  by Highpoint               last update: 24.02.2026       //
+//  by Highpoint               last update: 25.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -44,7 +44,7 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;           // Auto-updated via config file
+const MeterTiltCalibration = -900;           // Auto-updated via config file
 
     // Debug flags
     const ENABLE_DEBUG = false;
@@ -266,7 +266,7 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 
     // Scale labels
     const scales = {
-        left: ["+5 dB", "0", "-5", "-10", "-15", "-20", "-25", "-30", "-35 dB"],
+        left: ["+5 dB", "0", "-5", "-10", "-15", "-20", "-26 dB"],
         right: [],
         stereoPilot: ["16", "14", "12", "10", "8", "6", "4", "2", "0 kHz"],
         hf: [],
@@ -409,10 +409,10 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 
         if (!rdsDisabled && !pilotDisabled && !mpxDisabled) {
             if (meterId.includes("left")) {
-                const dB = (peaks.left.value / 100) * 40 - 35;
+                const dB = (peaks.left.value / 100) * 31 - 26;
                 sharedText = dB.toFixed(1);
             } else if (meterId.includes("right")) {
-                const dB = (peaks.right.value / 100) * 40 - 35;
+                const dB = (peaks.right.value / 100) * 31 - 26;
                 sharedText = dB.toFixed(1);
             } else if (meterId.includes("hf")) {
                 let syncText = null;
@@ -653,8 +653,11 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // ==========================================================
     // Audio setup & animation (ROBUST VERSION)
     // ==========================================================
+    
+    // Logarithmic dB scale parameters for the UI Meter
+    // Scale goes from +5dB down to -26dB (Total range: 31dB)
     const METER_MAX_DB = 5;
-    const METER_MIN_DB = -35;
+    const METER_MIN_DB = -26;
     const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
 
     // Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
@@ -667,7 +670,7 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
         // Calculate physically accurate decibel value (dBFS)
         const db = 20 * Math.log10(linear);
 
-        // Map to the 0-100% visual scale range (+5 dB to -35 dB)
+        // Map to the 0-100% visual scale range (+5 dB to -26 dB)
         if (db <= METER_MIN_DB) return 0;
         if (db >= METER_MAX_DB) return 100;
 
@@ -792,8 +795,8 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
             const rawTargetPercentR = amplitudeToMeterPercent(maxR);
 
             // Apply asymmetric smoothing: fast attack, slow smooth decay
-            const attack = 0.8;
-            const decay = 0.15; // Controls how fast the visual meter smoothly drops
+            const attack = 0.8;   // Fast attack (1.0 = instant)
+            const decay = 0.6;    // Slow decay/release (lower = slower) 
 
             smoothedLevelL += (rawTargetPercentL > smoothedLevelL) 
                 ? (rawTargetPercentL - smoothedLevelL) * attack 

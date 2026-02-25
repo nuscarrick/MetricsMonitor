@@ -4,11 +4,11 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.4a
-- New variable ScopeInputCalibration added for calibrating the oscilloscope (see configuration options!)
-- The frame rate of the oscilloscope was significantly increased
-- Bandwidth of the 5-band audiometer adjusted
-- MPXcapture optimized for Linux
+## v2.4b
+
+- Patch against spamming detection updated
+- 5-band audiometer and VU meter adjusted
+- Fixed memory overflow issue
 
 ## Important note for this version: 
 
@@ -165,6 +165,12 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.4a
+- New variable ScopeInputCalibration added for calibrating the oscilloscope (see configuration options!)
+- The frame rate of the oscilloscope was significantly increased
+- Bandwidth of the 5-band audiometer adjusted
+- MPXcapture optimized for Linux
 
 ### v2.4
 - Vertical marker lines at 16, 22, 54 and 60 kHz were added to the analyzer

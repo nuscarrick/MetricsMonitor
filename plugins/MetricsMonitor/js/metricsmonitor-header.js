@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-header.js                        (V2.4a)  //
+//  metricsmonitor-header.js                        (V2.4b)  //
 //                                                           //
-//  by Highpoint               last update: 24.02.2026       //
+//  by Highpoint               last update: 25.02.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //

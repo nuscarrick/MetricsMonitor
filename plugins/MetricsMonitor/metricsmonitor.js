@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.4a)   //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.4b)   //
 //                                                             //
-//  by Highpoint               last update: 24.02.2026         //
+//  by Highpoint               last update: 25.02.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -46,7 +46,7 @@ const PeakMode = "dynamic";    // Do not touch - this value is automatically upd
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.4a";
+  const plugin_version = "2.4b";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";

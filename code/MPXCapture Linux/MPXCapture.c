@@ -1,5 +1,5 @@
 /*
- * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4a)
+ * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4b)
  * 
  * Features:
  * - Asynchronous Input Thread (Ringbuffer) - Decouples Audio Input from DSP
@@ -17,6 +17,7 @@
  * - Manual/Auto MPX Channel Selection
  * - Dynamic Scope Amplitude Calibration
  * - Double-Buffered Trigger Engine with 128-Sample Pre-Trigger Shift
+ * - Optimized Payload Size (3-decimal array precision to prevent Node.js OOM)
  *
  * Compile Linux: gcc MPXCapture.c -O3 -ffast-math -lm -pthread -static -o MPXCapture
  */
@@ -1082,7 +1083,9 @@ int main(int argc, char **argv)
                                 smoothBuf[k] = smoothBuf[k] * (1.0f - G_SpectrumAttack) + linearAmp * G_SpectrumAttack;
                             else 
                                 smoothBuf[k] = smoothBuf[k] * (1.0f - G_SpectrumDecay) + linearAmp * G_SpectrumDecay;
-                            printf("%.4f", smoothBuf[k] * 15.0f);
+                            
+                            // Reduced to 3 decimal places to match C# and reduce payload size
+                            printf("%.3f", smoothBuf[k] * 15.0f);
                             if (k < maxBin - 1) printf(",");
                         }
                         printf("],");
@@ -1097,7 +1100,8 @@ int main(int argc, char **argv)
                 if (scopeEnabled) {
                     printf("\"o\":[");
                     for (int k = 0; k < 1024; k++) {
-                        printf("%.4f", scopeOutputBuf[k]);
+                        // Reduced to 3 decimal places
+                        printf("%.3f", scopeOutputBuf[k]);
                         if (k < 1023) printf(",");
                     }
                     printf("],");
@@ -1105,7 +1109,8 @@ int main(int argc, char **argv)
                     printf("\"o\":[],");
                 }
 
-                printf("\"p\":%.4f,\"r\":%.4f,\"m\":%.4f,\"b\":%.4f}\n", smoothP, smoothR, mFinal, smoothB);
+                // Reduced to 2 decimal places to match C# exactly
+                printf("\"p\":%.2f,\"r\":%.2f,\"m\":%.2f,\"b\":%.2f}\n", smoothP, smoothR, mFinal, smoothB);
                 fflush(stdout);
                 
                 counter = 0;

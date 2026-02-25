@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.4a)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.4b)   //
 //                                                              //
-//  by Highpoint                     last update: 24.02.2026    //
+//  by Highpoint                     last update: 25.02.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -162,7 +162,7 @@ function normalizePluginConfig(json) {
   }
 
   // 8. Migration: pilotCalibration -> MeterPilotCalibration
-  if (typeof json.pilotCalibration !== "undefined" && typeof json.MeterPilotCalibration === "undefined") {
+  if (typeof json.MeterPilotCalibration !== "undefined" && typeof json.MeterPilotCalibration === "undefined") {
     json.MeterPilotCalibration = json.pilotCalibration;
     delete json.pilotCalibration;
   }
@@ -543,10 +543,8 @@ function patchHelpersForLocalhostBypass() {
       return;
     }
 
-    // Locate the function
-    const fnSignature =
-      "function antispamProtection(message, clientIp, ws, userCommands, lastWarn, userCommandHistory, lengthCommands, endpointName) {";
-    const fnIndex = content.indexOf(fnSignature);
+    // Locate the function (Partial match to ignore added/removed arguments in new versions)
+    const fnIndex = content.indexOf("function antispamProtection(");
 
     if (fnIndex === -1) {
       logWarn(
@@ -555,18 +553,22 @@ function patchHelpersForLocalhostBypass() {
       return;
     }
 
-    // Locate start of function body
-    const commandLine = "const command = message.toString();";
-    const cmdIndex = content.indexOf(commandLine, fnIndex);
+    // Extract a small snippet right after the function declaration to search for the variable declaration
+    const searchSnippet = content.slice(fnIndex, fnIndex + 500);
+    
+    // Regex to match "const command = <anything>;" (Handles both the old and the new .replace(...) code)
+    const cmdRegex = /const\s+command\s*=\s*[^\n]+;/;
+    const match = searchSnippet.match(cmdRegex);
 
-    if (cmdIndex === -1) {
+    if (!match) {
       logWarn(
-        "[MPX] 'const command = message.toString();' not found in antispamProtection() - skipping localhost patch."
+        "[MPX] 'command' variable definition not found in antispamProtection() - skipping localhost patch."
       );
       return;
     }
 
-    const insertPos = cmdIndex + commandLine.length;
+    // Calculate the exact insertion position right after the matched "const command = ...;" line
+    const insertPos = fnIndex + match.index + match[0].length;
 
     const insertion = `
   ${LOCALHOST_PATCH_MARKER} allow internal server apps on localhost
@@ -1318,18 +1320,15 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     });
 
     // Listen for client messages (Heartbeats from Spectrum AND Scope)
+    // FIX: Do not use JSON.parse() here, as the webserver reflects our 30KB payload back!
+    // Parsing a 30KB string 30 times a second creates massive memory leaks (OOM).
     dataPluginsWs.on("message", (raw) => {
         try {
-            const msg = JSON.parse(raw);
-            if (msg.type === "MPX") {
-                // Spectrum heartbeat
-                if (msg.cmd === "spectrum_heartbeat") {
-                    lastSpectrumHeartbeat = Date.now();
-                }
-                // Scope heartbeat
-                if (msg.cmd === "scope_heartbeat") {
-                    lastScopeHeartbeat = Date.now();
-                }
+            const str = raw.toString();
+            if (str.includes('"spectrum_heartbeat"')) {
+                lastSpectrumHeartbeat = Date.now();
+            } else if (str.includes('"scope_heartbeat"')) {
+                lastScopeHeartbeat = Date.now();
             }
         } catch(e) {}
     });
@@ -1356,6 +1355,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
           input: childProcess.stdout, 
           crlfDelay: Infinity 
       });
+      childProcess.rl = rl; // Keep reference to close later if needed
 
       rl.on('line', (line) => {
           try {
@@ -1510,6 +1510,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
         rec.on("close", (code) => {
             logInfo("[MPX] MPXCapture exited with code:", code);
+            if (rec && rec.rl) rec.rl.close(); // Clean up readline memory
             attemptReconnect();
         });
     }
@@ -1564,6 +1565,11 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
           // Clear the queue to prevent a massive backlog burst upon reconnection
           wsMessageQueue.length = 0; 
           return;
+      }
+      
+      // Prevent indefinite queue growth if shifting somehow fails or socket blocks forever
+      if (wsMessageQueue.length > 100) {
+          wsMessageQueue.shift(); // Drop the oldest frame to avoid memory leak
       }
       
       // 2. Check Backpressure
@@ -1685,10 +1691,12 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
       while (wsMessageQueue.length > 0 && (now - wsMessageQueue[0].time) >= VISUAL_DELAY_MS) {
           const item = wsMessageQueue.shift();
           
-          // Final safety check just in case the connection state changed during the loop
-          if (dataPluginsWs && dataPluginsWs.readyState === WebSocket.OPEN) {
-              dataPluginsWs.send(item.payload, () => {});
-          }
+          try {
+              // Final safety check just in case the connection state changed during the loop
+              if (dataPluginsWs && dataPluginsWs.readyState === WebSocket.OPEN) {
+                  dataPluginsWs.send(item.payload, () => {});
+              }
+          } catch(e) {}
       }
 
   }, SPECTRUM_SEND_INTERVAL);
