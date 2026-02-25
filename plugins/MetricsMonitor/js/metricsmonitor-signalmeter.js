@@ -32,7 +32,7 @@ const SpectrumSendInterval = 30;    // Do not touch - this value is automaticall
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
 const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 1.3;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
 const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
@@ -148,8 +148,8 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
   // -------------------------------------------------------
   function stereoColorForPercent(p, totalSegments = 30) {
     const i = Math.max(0, Math.min(totalSegments - 1, Math.round((p / 100) * totalSegments) - 1));
-    // Changed from totalSegments - 5 to totalSegments - 4 to start red at 0.0 dB
-    const topBandStart = totalSegments - 4;
+    // Changed from totalSegments - 5 to start red at 0.0 dB
+    const topBandStart = totalSegments - 5;
     
     const cDanger = parseRgb(MeterColorDanger);
     const cSafe = parseRgb(MeterColorSafe);
@@ -262,8 +262,8 @@ function setPeakSegment(meterEl, peak, meterId) {
       if (i < activeCount) {
         if (meterId.includes('left') || meterId.includes('right')) {
           // Stereo: Safe (bottom) -> Danger (top)
-          // Changed from segments.length - 5 to segments.length - 4 to start red at 0.0 dB
-          if (i >= segments.length - 4) {
+          // Changed from segments.length - 5 to start red at 0.0 dB
+          if (i >= segments.length - 5) {
             const intensity = 0.8 + (0.2 * (i / segments.length)); 
             seg.style.backgroundColor = applyIntensity(cDanger, intensity);
           } else {
