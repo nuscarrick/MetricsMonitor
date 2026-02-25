@@ -1,5 +1,5 @@
 ﻿/*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.4b)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.4a)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
@@ -586,20 +586,19 @@ class Program
                         sb.Clear();
                         sb.Append("{\"s\":[");
                         
-                        // FIX: Reduced string precision to 0.000 (3 decimals) to shrink network footprint
                         if (enableSpectrum) {
                             for (int k = 0; k < fftSize / 2; k++) {
-                                sb.Append((smoothSpectrum[k] * 1.0f).ToString("0.000", CultureInfo.InvariantCulture));
+                                sb.Append((smoothSpectrum[k] * 1.0f).ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < (fftSize / 2) - 1) sb.Append(",");
                             }
                         }
                         
                         sb.Append("],\"o\":[");
                         
-                        // ONLY APPEND ARRAY CONTENT IF SCOPE IS ENABLED
+                        // ONLY APPEND ARRAY CONTENT IF SCOPE IS ENABLED (Otherwise it safely leaves "o":[])
                         if (enableScope) {
                             for (int k = 0; k < 1024; k++) {
-                                sb.Append(scopeOutputBuf[k].ToString("0.000", CultureInfo.InvariantCulture));
+                                sb.Append(scopeOutputBuf[k].ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < 1023) sb.Append(",");
                             }
                         }
@@ -645,6 +644,7 @@ class Program
                     var result = await udp.ReceiveAsync();
                     string command = Encoding.UTF8.GetString(result.Buffer).Trim();
                     
+                    // INSTANT UDP OFF/ON (Delay completely removed!)
                     if (command.Contains("SPECTRUM=1")) {
                         Config.LastSpectrumHeartbeat = DateTime.UtcNow;
                         if (!Config.EnableSpectrum) { Config.EnableSpectrum = true; Console.Error.WriteLine("[MPX] Spectrum ENABLED"); }
