@@ -2,7 +2,8 @@
 
 FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
+<img width="1204" height="849" alt="grafik" src="https://github.com/user-attachments/assets/4f0e5718-8336-4456-8d3c-19ca8e549bff" />
+
 
 ## v2.5
 
@@ -111,7 +112,8 @@ After making changes to the metricsmonitor.json script, a server restart is only
 
 
 ## Module Displays (Values ​​for MODULE_SEQUENCE)
-<img width="1916" height="272" alt="grafik" src="https://github.com/user-attachments/assets/137805bf-eba1-4736-bd12-21936d280400" />
+<img width="2000" height="284" alt="grafik" src="https://github.com/user-attachments/assets/f6620e3d-ca68-4891-aaf1-7781f84a6c25" />
+
 
 ## Canvas Displays (Values ​​for CANVAS_SEQUENCE)
 <img width="1637" height="304" alt="grafik" src="https://github.com/user-attachments/assets/71c88160-344c-4d65-be12-8a8dc74925d1" />
