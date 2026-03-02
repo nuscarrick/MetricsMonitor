@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js                  (V2.4b)   //
+//  metricsmonitor-signalmeter.js                  (V2.5)    //
 //                                                           //
-//  by Highpoint               last update: 25.02.2026       //
+//  by Highpoint               last update: 02.03.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude,     //
@@ -34,8 +34,9 @@ const SpectrumYDynamics = 2;    // Do not touch - this value is automatically up
 const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
 const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
 const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [0,1,2,5,3,4];    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
+const MultipathMode = 1;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
 const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
 const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
@@ -48,9 +49,9 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
 
 const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.MetricsMonitor.Config : {};
 
-  // ==========================================================
+  // -------------------------------------------------------
   // CSS FIXES FOR ZOOMING (Signal Meter specific)
-  // ==========================================================
+  // -------------------------------------------------------
   const style = document.createElement('style');
   style.innerHTML = `
     /* Fix for sub-pixel rendering gaps on zoom */
@@ -94,6 +95,31 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
       return `rgb(${r},${g},${b})`;
   }
 
+  // --- MP COLOR LOGIC ---
+  function mpColorForIndex(i, totalSegments) {
+      const cSafe = parseRgb(MeterColorSafe);
+      const cWarning = parseRgb(MeterColorWarning);
+      const cDanger = parseRgb(MeterColorDanger);
+
+      // MP thresholds: < 10% Green, 10%-30% Yellow, > 30% Red
+      const idxYellowStart = Math.round((10 / 100) * totalSegments);
+      const idxRedStart = Math.round((30 / 100) * totalSegments);
+
+      if (i < idxYellowStart) {
+          const pos = i / Math.max(1, idxYellowStart - 1);
+          const intensity = 0.45 + (0.3 * pos);
+          return applyIntensity(cSafe, intensity);
+      } else if (i < idxRedStart) {
+          const pos = (i - idxYellowStart) / Math.max(1, idxRedStart - idxYellowStart);
+          const intensity = 0.6 + (0.4 * pos);
+          return applyIntensity(cWarning, intensity);
+      } else {
+          const pos = (i - idxRedStart) / Math.max(1, totalSegments - idxRedStart);
+          const intensity = 0.6 + (0.4 * pos);
+          return applyIntensity(cDanger, intensity);
+      }
+  }
+
   // -------------------------------------------------------
   // Unit Conversion
   // -------------------------------------------------------
@@ -104,6 +130,13 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
     if (ssu === 'dbuv' || ssu === 'dbµv' || ssu === 'dbμv') return v - 10.875;
     if (ssu === 'dbm') return v - 119.75;
     return v; // default dBf
+  }
+
+  function formatUnit(unit) {
+    const ssu = (unit || '').toLowerCase();
+    if (ssu === 'dbm') return 'dBm';
+    if (ssu === 'dbf') return 'dBf';
+    return 'dBµV';
   }
 
   function hfPercentFromBase(baseHF) {
@@ -118,37 +151,56 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
   function buildHFScale(unit) {
     const baseScale_dBuV = [90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
     const ssu = (unit || '').toLowerCase();
-    const lastIndex = baseScale_dBuV.length - 1;
-
     const round10 = (v) => Math.round(v / 10) * 10;
 
     if (ssu === 'dbm') {
-      return baseScale_dBuV.map((v, idx) => {
-        const dBm = v - 108.875;
-        const rounded = round10(dBm);
-        return idx === lastIndex ? `${rounded} dBm` : `${rounded}`;
-      });
+      return baseScale_dBuV.map(v => `${round10(v - 108.875)}`);
     }
     if (ssu === 'dbf') {
-      return baseScale_dBuV.map((v, idx) => {
-        const dBf = v + 10.875;
-        const rounded = round10(dBf);
-        return idx === lastIndex ? `${rounded} dBf` : `${rounded}`;
-      });
+      return baseScale_dBuV.map(v => `${round10(v + 10.875)}`);
     }
     // default: dBµV
-    return baseScale_dBuV.map((v, idx) => {
-      const rounded = round10(v);
-      return idx === lastIndex ? `${rounded} dBµV` : `${rounded}`;
-    });
+    return baseScale_dBuV.map(v => `${round10(v)}`);
   }
 
   // -------------------------------------------------------
-  // Meter Drawing Helpers (scoped to a root element)
+  // Multipath calculation (Dynamic Mode Check)
+  // The code or algorithm for multipath calculation was adopted from the UIAddonPack plugin by AmateurAudioDude.
+  // -------------------------------------------------------
+  const MULTIPATH_SIGNAL_THRESHOLD_DBF = 25;
+  const MULTIPATH_TIMEOUT_DURATION = 800;
+
+  function smoothInterpolationMultipath(raw) {
+    // Read dynamic mode from global config or fallback to local constant
+    let isTefMode = true;
+    if (window.MetricsMonitor && window.MetricsMonitor.Config && window.MetricsMonitor.Config.MultipathMode !== undefined) {
+        isTefMode = (window.MetricsMonitor.Config.MultipathMode === 1);
+    } else {
+        isTefMode = (MultipathMode === 1);
+    }
+
+    const v = Number(raw);
+    if (!isFinite(v)) return 0;
+
+    if (!isTefMode) {
+        return Math.min(99, Math.max(0, parseInt(raw, 10)));
+    }
+
+    // TEF Radio interpolation logic
+    if (v <= 3) return 0;
+    if (v >= 40) return 99; // Cap at 99 visually
+
+    const normValue = (v - 3) / (40 - 3);
+    const smoothValue = Math.pow(normValue, 1);
+    const scaledValue = smoothValue * 99;
+    return parseInt(scaledValue, 10);
+  }
+
+  // -------------------------------------------------------
+  // Meter Drawing Helpers
   // -------------------------------------------------------
   function stereoColorForPercent(p, totalSegments = 30) {
     const i = Math.max(0, Math.min(totalSegments - 1, Math.round((p / 100) * totalSegments) - 1));
-    // Changed from totalSegments - 5 to start red at 0.0 dB
     const topBandStart = totalSegments - 5;
     
     const cDanger = parseRgb(MeterColorDanger);
@@ -162,107 +214,122 @@ const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.
     return applyIntensity(cSafe, intensity);
   }
 
-function updatePeakValue(peaks, channel, current, holdMs, smoothing) {
-  const p = peaks[channel];
-  if (!p) return;
+  function updatePeakValue(peaks, channel, current, holdMs, smoothing, decayRate = 2.5) {
+    const p = peaks[channel];
+    if (!p) return;
 
-  const now = Date.now();
+    // If current is invalid (<0), clear the peak instantly
+    if (current < 0) {
+        p.value = -1;
+        return;
+    }
 
-  if (current > p.value) {
-    // New peak
-    p.value = current;
-    p.lastUpdate = now;
-  } else if (now - p.lastUpdate > holdMs) {
-    // Linear decay (instead of multiplicative smoothing)
-    p.value = Math.max(current, p.value - 2.5);
+    const now = Date.now();
+    if (p.lastUpdate === undefined) p.lastUpdate = now;
 
-    // Clamp to zero
-    if (p.value < 0.5) p.value = 0;
-  }
-}
+    let actualHoldMs = holdMs;
+    let actualDecayRate = decayRate;
 
-function setPeakSegment(meterEl, peak, meterId) {
-  const segments = meterEl.querySelectorAll(".segment");
-  if (!segments.length) return;
+    if (channel === 'mp') {
+        actualHoldMs = 200;  // Extremely short hold for Multipath
+        actualDecayRate = 8.0; // Very fast falloff    
+    } else if (channel === 'hf') {
+        actualHoldMs = 1500;
+        actualDecayRate = 1.0;
+    } else {
+        actualHoldMs = holdMs; 
+        actualDecayRate = 2.0; 
+    }
 
-  // Remove ALL previous peak flags (not only the first one)
-  const prevAll = meterEl.querySelectorAll(".segment.peak-flag");
-  prevAll.forEach((prev) => {
-    prev.classList.remove("peak-flag");
-    // remove any inline styling we may have applied
-    prev.style.removeProperty("background-color");
-    prev.style.removeProperty("box-shadow");
-    prev.style.removeProperty("opacity");
-  });
-
-  const idx = Math.max(
-    0,
-    Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1)
-  );
-
-  const seg = segments[idx];
-  if (!seg) return;
-
-  seg.classList.add("peak-flag");
-
-  // Peak Color Logic
-  let peakColor = "";
-
-  if (PeakMode === "fixed" && (meterId.includes("left") || meterId.includes("right"))) {
-    peakColor = PeakColorFixed;
-  } else {
-    if (meterId.includes("left") || meterId.includes("right")) {
-      peakColor = stereoColorForPercent(peak, segments.length);
-    } else if (meterId.includes("hf")) {
-      const hfThresholdIndex = Math.round((20 / 90) * segments.length);
-      if (idx < hfThresholdIndex) {
-        const cDanger = parseRgb(MeterColorDanger);
-        const pos = idx / Math.max(1, hfThresholdIndex);
-        const intensity = 0.6 + (pos * 0.4);
-        peakColor = applyIntensity(cDanger, intensity);
-      } else {
-        const cSafe = parseRgb(MeterColorSafe);
-        const intensity = 0.4 + ((idx / segments.length) * 0.6);
-        peakColor = applyIntensity(cSafe, intensity);
-      }
+    if (current >= p.value) {
+      p.value = current;
+      p.lastUpdate = now;
+    } else if (now - p.lastUpdate > actualHoldMs) {
+      p.value = Math.max(current, p.value - actualDecayRate);
+      if (p.value <= current + 0.5) p.value = current;
     }
   }
 
-  if (peakColor) {
-    seg.style.setProperty("background-color", peakColor, "important");
+  function setPeakSegment(meterEl, peak, meterId) {
+    const segments = meterEl.querySelectorAll(".segment");
+    if (!segments.length) return;
+
+    // Remove ALL previous peak flags
+    const prevAll = meterEl.querySelectorAll(".segment.peak-flag");
+    prevAll.forEach((prev) => {
+      prev.classList.remove("peak-flag");
+      prev.style.removeProperty("background-color");
+      prev.style.removeProperty("box-shadow");
+      prev.style.removeProperty("opacity");
+    });
+
+    // Don't draw a peak if the value is invalid
+    if (peak < 0) return;
+
+    const idx = Math.max(
+      0,
+      Math.min(segments.length - 1, Math.round((peak / 100) * segments.length) - 1)
+    );
+
+    const seg = segments[idx];
+    if (!seg) return;
+
+    seg.classList.add("peak-flag");
+
+    // Peak Color Logic
+    let peakColor = "";
+
+    if (PeakMode === "fixed" && (meterId.includes("left") || meterId.includes("right"))) {
+      peakColor = PeakColorFixed;
+    } else {
+      if (meterId.includes("left") || meterId.includes("right")) {
+        peakColor = stereoColorForPercent(peak, segments.length);
+      } else if (meterId.includes("hf")) {
+        const hfThresholdIndex = Math.round((20 / 90) * segments.length);
+        if (idx < hfThresholdIndex) {
+          const cDanger = parseRgb(MeterColorDanger);
+          const pos = idx / Math.max(1, hfThresholdIndex);
+          const intensity = 0.6 + (pos * 0.4);
+          peakColor = applyIntensity(cDanger, intensity);
+        } else {
+          const cSafe = parseRgb(MeterColorSafe);
+          const intensity = 0.4 + ((idx / segments.length) * 0.6);
+          peakColor = applyIntensity(cSafe, intensity);
+        }
+      } else if (meterId.includes("mp")) {
+        peakColor = mpColorForIndex(idx, segments.length);
+      }
+    }
+
+    if (peakColor) {
+      seg.style.setProperty("background-color", peakColor, "important");
+    }
   }
-}
 
   function updateMeterById(root, meterId, level, peaks, peakCfg) {
     if (!root) return;
     const meter = root.querySelector(`#${cssEscape(meterId)}`);
     if (!meter) return;
 
-    const safeLevel = Math.max(0, Math.min(100, Number(level) || 0));
+    // Process invalid states (-1)
+    const isInvalid = (level < 0);
+    const safeLevel = isInvalid ? 0 : Math.max(0, Math.min(100, Number(level) || 0));
     const segments = meter.querySelectorAll('.segment');
-    const activeCount = Math.round((safeLevel / 100) * segments.length);
+    const activeCount = isInvalid ? 0 : Math.round((safeLevel / 100) * segments.length);
 
-    // Parse Config Colors
     const cDanger = parseRgb(MeterColorDanger);
     const cSafe = parseRgb(MeterColorSafe);
-    const cWarning = parseRgb(MeterColorWarning);
-
-    // hard-reset any previous peak leftovers BEFORE painting the bar
+    
     segments.forEach((seg) => {
-    if (seg.classList.contains("peak-flag")) seg.classList.remove("peak-flag");
-      // remove any "important" peak color from earlier frames
+      if (seg.classList.contains("peak-flag")) seg.classList.remove("peak-flag");
       seg.style.removeProperty("background-color");
     });
 
-    // Paint bar normally
     segments.forEach((seg, i) => {
-      // Check for peak flag first
       if (seg.classList.contains("peak-flag")) return; 
 
       if (i < activeCount) {
         if (meterId.includes('left') || meterId.includes('right')) {
-          // Stereo: Safe (bottom) -> Danger (top)
-          // Changed from segments.length - 5 to start red at 0.0 dB
           if (i >= segments.length - 5) {
             const intensity = 0.8 + (0.2 * (i / segments.length)); 
             seg.style.backgroundColor = applyIntensity(cDanger, intensity);
@@ -271,90 +338,87 @@ function setPeakSegment(meterEl, peak, meterId) {
             seg.style.backgroundColor = applyIntensity(cSafe, intensity);
           }
         } else if (meterId.includes('hf')) {
-          // HF: Danger (bottom/low signal) -> Safe (top/high signal)
           const hfThresholdIndex = Math.round((20 / 90) * segments.length);
           if (i < hfThresholdIndex) {
-            // Danger Zone
             const pos = i / hfThresholdIndex;
             const intensity = 0.6 + (0.4 * pos);
             seg.style.backgroundColor = applyIntensity(cDanger, intensity);
           } else {
-            // Safe Zone
             const pos = i / segments.length;
             const intensity = 0.4 + (0.6 * pos);
             seg.style.backgroundColor = applyIntensity(cSafe, intensity);
           }
+        } else if (meterId.includes('mp')) {
+          seg.style.backgroundColor = mpColorForIndex(i, segments.length);
         } else {
-          // Fallback
           seg.style.backgroundColor = '#333';
         }
       } else {
-        // Ensure inactive segments are visible as dark gray
         seg.style.backgroundColor = '#333';
       }
     });
 
-    // Peak marker (apply to HF as well if needed in future, currently mainly stereo here logic-wise)
-    const key = meterId.includes('left') ? 'left' : (meterId.includes('right') ? 'right' : null);
+    const key = meterId.includes('left') ? 'left' : 
+                (meterId.includes('right') ? 'right' : 
+                (meterId.includes('mp') ? 'mp' : 
+                (meterId.includes('hf') ? 'hf' : null)));
     
-    // Only update stereo peaks here based on args
     if (key) {
-      updatePeakValue(peaks, key, safeLevel, peakCfg.holdMs, peakCfg.smoothing);
+      let hold = peakCfg.holdMs; 
+      let decay = 2.5;           
+      
+      if (key === 'mp') {
+          hold = 200;  
+          decay = 8.0; 
+      }
+      
+      updatePeakValue(peaks, key, level, hold, peakCfg.smoothing, decay);
       setPeakSegment(meter, peaks[key].value, meterId);
     } 
   }
 
   // -------------------------------------------------------
-  // Shared Hub (Single Socket + Single Audio Loop)
+  // Shared Hub 
   // -------------------------------------------------------
-
-  // Logarithmic dB scale parameters for the UI Meter
-  // Scale goes from +5dB down to -26dB (Total range: 31dB)
   const METER_MAX_DB = 5;
   const METER_MIN_DB = -26;
   const METER_RANGE = METER_MAX_DB - METER_MIN_DB;
 
-  // Convert digital peak amplitude to dBFS, then map to 0-100% based on our custom scale
   function amplitudeToMeterPercent(amplitude) {
-    // Prevent log(0) calculation error
     if (amplitude < 0.00001) return 0;
-    
-    // Use StereoBoost for this module specifically to maintain 0dB integrity when = 1.0
     const linear = amplitude * StereoBoost;
-    
-    // Calculate physically accurate decibel value (dBFS)
     const db = 20 * Math.log10(linear);
 
-    // Map to the 0-100% visual scale range (+5 dB to -26 dB)
     if (db <= METER_MIN_DB) return 0;
     if (db >= METER_MAX_DB) return 100;
-
     return ((db - METER_MIN_DB) / METER_RANGE) * 100;
   }
 
   function createHub() {
-    return {
+    const hub = {
       socket: null,
       connected: false,
       connecting: null,
       msgListenerAttached: false,
 
-      // Registered instances (key -> instance)
       instances: new Map(), 
-
-      // Latest values
       latestSigBase: null,
+      latestMultipath: null,
+      
+      lastMultipathProcessTime: 0,
+      prevFreq: 0,
+
       unit: (window.MetricsMonitor && typeof window.MetricsMonitor.getSignalUnit === 'function')
         ? (window.MetricsMonitor.getSignalUnit() || 'dbf').toLowerCase()
         : (localStorage.getItem('mm_signal_unit') || 'dbf').toLowerCase(),
 
-      // Shared exported levels
       sharedLevels: {
         hf: 0,
         hfValue: 0,
         hfBase: 0,
         left: 0,
-        right: 0
+        right: 0,
+        mp: -1 // Initialize to invalid so it starts empty
       },
 
       ensureConnected() {
@@ -374,8 +438,48 @@ function setPeakSegment(meterEl, peak, meterId) {
             ws.addEventListener('message', (evt) => {
               try {
                 const msg = JSON.parse(evt.data);
+
+                // 1. HF / Signal Update 
                 if (msg && msg.sig !== undefined) {
                   this.broadcastSig(msg.sig);
+                }
+
+                // 2. Multipath Update 
+                if (msg && msg.sigRaw !== undefined) {
+                  const now = Date.now();
+
+                  let currentFreq = 0;
+                  if (msg.freq !== undefined) {
+                      currentFreq = Number(msg.freq);
+                  } else {
+                      const freqEl = document.getElementById("data-frequency");
+                      if (freqEl) currentFreq = Number(freqEl.textContent);
+                  }
+
+                  if (currentFreq !== 0 && this.prevFreq !== currentFreq) {
+                      this.prevFreq = currentFreq;
+                      this.broadcastMultipath(NaN);
+                      return;
+                  }
+                  this.prevFreq = currentFreq;
+
+                  if (now - this.lastMultipathProcessTime < MULTIPATH_TIMEOUT_DURATION) return;
+                  this.lastMultipathProcessTime = now;
+
+                  const sigRawValues = msg.sigRaw.split(',');
+                  if (sigRawValues.length >= 2) {
+                      const parsedSig = parseInt(sigRawValues[0].slice(2), 10);
+                      const rawMultipath = sigRawValues[1];
+
+                      let mpPercent = smoothInterpolationMultipath(rawMultipath);
+                      if (mpPercent > 99) mpPercent = 99; // Caps strictly at 99.
+
+                      if (parsedSig > MULTIPATH_SIGNAL_THRESHOLD_DBF) {
+                          this.broadcastMultipath(mpPercent);
+                      } else {
+                          this.broadcastMultipath(NaN);
+                      }
+                  }
                 }
               } catch {}
             });
@@ -396,6 +500,17 @@ function setPeakSegment(meterEl, peak, meterId) {
         }
       },
 
+      broadcastMultipath(val) {
+        if (val === null) {
+          this.latestMultipath = null;
+        } else {
+          this.latestMultipath = val;
+        }
+        for (const inst of this.instances.values()) {
+          try { inst._onMultipath(val); } catch {}
+        }
+      },
+
       setUnit(unit) {
         if (!unit) return;
         const u = String(unit).toLowerCase();
@@ -405,9 +520,6 @@ function setPeakSegment(meterEl, peak, meterId) {
         }
       },
 
-      // -----------------------
-      // Shared Audio Analyser (Exact Logic from AudioMeter)
-      // -----------------------
       audio: {
         ctx: null,
         sourceNode: null,
@@ -426,7 +538,6 @@ function setPeakSegment(meterEl, peak, meterId) {
       ensureAudio() {
         const A = this.audio;
         
-        // This function is called repeatedly via interval, just like in audiometer.js
         const trySetup = () => {
             if (
                 typeof Stream === "undefined" ||
@@ -435,7 +546,6 @@ function setPeakSegment(meterEl, peak, meterId) {
                 !Stream.Fallback.Player ||
                 !Stream.Fallback.Player.Amplification
             ) {
-                // Not ready yet
                 return;
             }
 
@@ -447,7 +557,6 @@ function setPeakSegment(meterEl, peak, meterId) {
             try {
                 const ctx = sourceNode.context;
 
-                // Reset if context changed (tab changed, etc)
                 if (A.ctx !== ctx) {
                     A.ctx = ctx;
                     A.splitter = null;
@@ -464,16 +573,13 @@ function setPeakSegment(meterEl, peak, meterId) {
                      A.analyserL = ctx.createAnalyser();
                      A.analyserR = ctx.createAnalyser();
                      
-                     // Increased FFT size for smoother and more accurate extraction
                      A.analyserL.fftSize = 4096;
                      A.analyserR.fftSize = 4096;
                      
-                     // Initialize high precision 32-bit float arrays
                      A.dataL = new Float32Array(A.analyserL.fftSize);
                      A.dataR = new Float32Array(A.analyserR.fftSize);
                 }
 
-                // Check source node connection
                 if (A.sourceNode !== sourceNode) {
                     A.sourceNode = sourceNode;
                     
@@ -490,7 +596,6 @@ function setPeakSegment(meterEl, peak, meterId) {
                     }
                 }
 
-                // Ensure loop is running
                 if (!A.rafId) {
                    startAudioLoop();
                 }
@@ -510,14 +615,12 @@ function setPeakSegment(meterEl, peak, meterId) {
                 }
 
                 if (A.analyserL && A.analyserR && A.dataL && A.dataR) {
-                    // Use Float32Array to get exact waveform floats (-1.0 to 1.0) for highly accurate dB translation
                     A.analyserL.getFloatTimeDomainData(A.dataL);
                     A.analyserR.getFloatTimeDomainData(A.dataR);
                     
                     let maxL = 0;
                     let maxR = 0;
                     
-                    // Extract absolute peak values representing true digital peak amplitude
                     for (let i = 0; i < A.dataL.length; i++) {
                         const absL = Math.abs(A.dataL[i]);
                         if (absL > maxL) maxL = absL;
@@ -527,13 +630,11 @@ function setPeakSegment(meterEl, peak, meterId) {
                         if (absR > maxR) maxR = absR;
                     }
 
-                    // Convert accurate physical peak level to our UI percentage scale based on Log/dB
                     const rawTargetPercentL = amplitudeToMeterPercent(maxL);
                     const rawTargetPercentR = amplitudeToMeterPercent(maxR);
                     
-                    // Apply asymmetric smoothing: fast attack, slow smooth decay
-                    const attack = 0.8;   // Fast attack (1.0 = instant)
-                    const decay = 0.6;    // Slow decay/release (lower = slower) 
+                    const attack = 0.8; 
+                    const decay = 0.6;  
                     
                     A.smoothedLevelL += (rawTargetPercentL > A.smoothedLevelL) 
                         ? (rawTargetPercentL - A.smoothedLevelL) * attack 
@@ -564,15 +665,15 @@ function setPeakSegment(meterEl, peak, meterId) {
         }
       }
     };
+
+    return hub;
   }
 
   const HUB = window[HUB_KEY] || (window[HUB_KEY] = createHub());
 
-  // Synchronize hub with global unit changes
   if (!HUB._unitListenerAttached && window.MetricsMonitor && typeof window.MetricsMonitor.onSignalUnitChange === 'function') {
     HUB._unitListenerAttached = true;
     window.MetricsMonitor.onSignalUnitChange((u) => HUB.setUnit(u));
-    // Initialize once
     try {
       if (window.MetricsMonitor.getSignalUnit) HUB.setUnit(window.MetricsMonitor.getSignalUnit());
     } catch {}
@@ -593,7 +694,6 @@ function setPeakSegment(meterEl, peak, meterId) {
     const useLegacyIds = opts.useLegacyIds !== undefined ? !!opts.useLegacyIds : true;
     const enableAudio = opts.enableAudio !== undefined ? !!opts.enableAudio : (!textOnly);
 
-    // Destroy existing instance if key collision
     if (HUB.instances.has(instanceKey)) {
       try { HUB.instances.get(instanceKey).destroy(); } catch {}
       HUB.instances.delete(instanceKey);
@@ -602,7 +702,9 @@ function setPeakSegment(meterEl, peak, meterId) {
     const PEAK_CONFIG = { smoothing: 0.85, holdMs: 5000 };
     const peaks = {
       left: { value: 0, lastUpdate: Date.now() },
-      right: { value: 0, lastUpdate: Date.now() }
+      right: { value: 0, lastUpdate: Date.now() },
+      hf: { value: 0, lastUpdate: Date.now() },
+      mp: { value: 0, lastUpdate: Date.now() }
     };
 
     const state = {
@@ -613,34 +715,40 @@ function setPeakSegment(meterEl, peak, meterId) {
         hfValue: 0,
         hfBase: 0,
         left: 0,
-        right: 0
+        right: 0,
+        mp: -1, // -1 means hidden / empty
+        multipath: null
       },
       ids: {
         left: 'left-meter',
         right: 'right-meter',
-        hf: 'hf-meter'
+        hf: 'hf-meter',
+        mp: 'mp-meter'
       }
     };
 
-    // DOM Bindings
     const dom = {
       root,
       elHighest: null,
       elMain: null,
       elDec: null,
       unitEls: [],
+      elMultipathContainer: null,
+      elMultipathValue: null,
       meterExists: false,
     };
 
     function bindTextElements() {
-      // Prioritize data attributes for embedded/canvas usage
       dom.elHighest = root.querySelector('[data-mm-signal="highest"]') || root.querySelector('#data-signal-highest');
       dom.elMain = root.querySelector('[data-mm-signal="main"]') || root.querySelector('#data-signal');
       dom.elDec = root.querySelector('[data-mm-signal="decimal"]') || root.querySelector('#data-signal-decimal');
       dom.unitEls = Array.from(root.querySelectorAll('.signal-units'));
+      
+      dom.elMultipathContainer = root.querySelector('[data-mm-signal="multipath-container"]') || root.querySelector('#data-multipath-container');
+      dom.elMultipathValue = root.querySelector('[data-mm-signal="multipath-value"]') || root.querySelector('#data-multipath-value');
     }
 
-    function createLevelMeter(id, label, container, scaleValues) {
+    function createLevelMeter(id, label, unitText, container, scaleValues) {
       const levelMeter = document.createElement('div');
       levelMeter.classList.add('signal-level-meter');
 
@@ -654,11 +762,11 @@ function setPeakSegment(meterEl, peak, meterId) {
       for (let i = 0; i < 30; i++) {
         const segment = document.createElement('div');
         segment.classList.add('segment');
-        // Set initial background color
         segment.style.backgroundColor = '#333'; 
         meterBar.appendChild(segment);
       }
-      if (id.includes('left') || id.includes('right')) {
+      
+      if (id.includes('left') || id.includes('right') || id.includes('mp') || id.includes('hf')) {
         const marker = document.createElement('div');
         marker.className = 'peak-marker';
         meterBar.appendChild(marker);
@@ -668,10 +776,19 @@ function setPeakSegment(meterEl, peak, meterId) {
       labelElement.classList.add('label');
       labelElement.innerText = label;
 
+      const unitElement = document.createElement('div');
+      unitElement.classList.add('unit-label');
+      if (id.includes('hf')) {
+        unitElement.classList.add('hf-unit-label'); 
+      }
+      unitElement.innerText = unitText;
+
       const meterWrapper = document.createElement('div');
       meterWrapper.classList.add('meter-wrapper');
       if (id.includes('left')) labelElement.classList.add('label-left');
       if (id.includes('right')) labelElement.classList.add('label-right');
+      
+      meterWrapper.appendChild(unitElement); 
       meterWrapper.appendChild(meterBar);
       meterWrapper.appendChild(labelElement);
 
@@ -692,11 +809,11 @@ function setPeakSegment(meterEl, peak, meterId) {
     }
 
     function buildUiFull() {
-      // Use legacy IDs by default for CSS compatibility
       const idPrefix = useLegacyIds ? '' : `${instanceKey}-`;
       state.ids.left = idPrefix + 'left-meter';
       state.ids.right = idPrefix + 'right-meter';
       state.ids.hf = idPrefix + 'hf-meter';
+      state.ids.mp = idPrefix + 'mp-meter';
 
       root.innerHTML = '';
 
@@ -704,47 +821,86 @@ function setPeakSegment(meterEl, peak, meterId) {
       const stereoGroup = document.createElement('div');
       stereoGroup.classList.add('stereo-group');
 
-      const stereoScale = ['+5 dB', '0', '-5', '-10', '-15', '-20', '-26 dB'];
-      createLevelMeter(state.ids.left, 'LEFT', stereoGroup, stereoScale);
-      createLevelMeter(state.ids.right, 'RIGHT', stereoGroup, []);
+      const stereoScale = ['+5', '0', '-5', '-10', '-15', '-20', '-26'];
+      createLevelMeter(state.ids.left, 'LEFT', 'dB', stereoGroup, stereoScale);
+      createLevelMeter(state.ids.right, 'RIGHT', 'dB', stereoGroup, []);
       root.appendChild(stereoGroup);
 
       // HF Meter
       const hfScale = buildHFScale(state.hfUnit);
-      createLevelMeter(state.ids.hf, 'RF', root, hfScale);
+      createLevelMeter(state.ids.hf, 'RF', formatUnit(state.hfUnit), root, hfScale);
+      
       const hfLevelMeter = root.querySelector(`#${cssEscape(state.ids.hf)}`)?.closest('.signal-level-meter');
-      if (hfLevelMeter) hfLevelMeter.style.transform = 'translateX(-5px)';
+      if (hfLevelMeter) {
+        hfLevelMeter.style.transform = 'translateX(-10px)';
+        hfLevelMeter.style.marginLeft = '15px'; 
+      }
+
+      // MP Meter 
+      const mpScale = ['99', '90', '80', '70', '60', '50', '40', '30', '20', '10', '0'];
+      createLevelMeter(state.ids.mp, 'MP', '%', root, mpScale);
+	  
+	  const mpLevelMeter = root.querySelector(`#${cssEscape(state.ids.mp)}`)?.closest('.signal-level-meter');
+      if (mpLevelMeter) {
+        mpLevelMeter.style.transform = 'translateX(-5px)';
+      }
 
       // Signal Panel
       const signalPanel = document.createElement('div');
       signalPanel.className = 'panel-33 no-bg-phone signal-panel-layout';
-      // Use legacy IDs if requested, otherwise data attributes
+      
       if (useLegacyIds) {
         signalPanel.innerHTML = `
-          <h2 class="signal-heading">SIGNAL</h2>
-          <div class="text-small text-gray highest-signal-container">
-            <i class="fa-solid fa-arrow-up"></i>
-            <span id="data-signal-highest"></span>
-            <span class="signal-units"></span>
+          <div id="data-signal-values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
+            <h2 class="signal-heading" style="display: block !important;">SIGNAL</h2>
+            <div class="text-small text-gray highest-signal-container">
+              <i class="fa-solid fa-arrow-up"></i>
+              <span id="data-signal-highest"></span>
+              <span class="signal-units"></span>
+            </div>
+            <div class="text-big">
+              <span id="data-signal"></span><!--
+           --><span id="data-signal-decimal" class="text-medium-big" style="opacity:0.7;"></span>
+              <span class="signal-units text-medium" style="position: relative; top: -7px;">dBf</span>
+            </div>
           </div>
-          <div class="text-big">
-            <span id="data-signal"></span><!--
-         --><span id="data-signal-decimal" class="text-medium-big" style="opacity:0.7;"></span>
-            <span class="signal-units text-medium">dBf</span>
+
+          <div id="data-multipath-container"
+               style="display: none; position: relative; top: -2px; text-align: center; z-index: 10; transition: transform 0.3s ease; width: 100%;">
+            <h2 class="signal-heading"
+                style="display: inline-block; font-size: 15px; text-transform: none; letter-spacing: normal; margin: 0; padding: 0; border: none; vertical-align: baseline; transition: color 0.3s;">
+              Multipath:
+            </h2>
+            <span id="data-multipath-value"
+                  style="color: #ffffff; font-weight: normal; vertical-align: baseline; margin-left: 3px; font-size: 15px; transition: color 0.3s;">
+            </span>
           </div>
         `;
       } else {
         signalPanel.innerHTML = `
-          <h2 class="signal-heading">SIGNAL</h2>
-          <div class="text-small text-gray highest-signal-container">
-            <i class="fa-solid fa-arrow-up"></i>
-            <span data-mm-signal="highest"></span>
-            <span class="signal-units"></span>
+          <div data-mm-signal="values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
+            <h2 class="signal-heading" style="display: block !important;">SIGNAL</h2>
+            <div class="text-small text-gray highest-signal-container">
+              <i class="fa-solid fa-arrow-up"></i>
+              <span data-mm-signal="highest"></span>
+              <span class="signal-units"></span>
+            </div>
+            <div class="text-big">
+              <span data-mm-signal="main"></span><!--
+           --><span data-mm-signal="decimal" class="text-medium-big" style="opacity:0.7;"></span>
+              <span class="signal-units text-medium" style="position: relative; top: -7px;">dBf</span>
+            </div>
           </div>
-          <div class="text-big">
-            <span data-mm-signal="main"></span><!--
-         --><span data-mm-signal="decimal" class="text-medium-big" style="opacity:0.7;"></span>
-            <span class="signal-units text-medium">dBf</span>
+
+          <div data-mm-signal="multipath-container"
+               style="display: none; position: relative; top: -2px; text-align: center; z-index: 10; transition: transform 0.3s ease; width: 100%;">
+            <h2 class="signal-heading"
+                style="display: inline-block; font-size: 15px; text-transform: none; letter-spacing: normal; margin: 0; padding: 0; border: none; vertical-align: baseline; transition: color 0.3s;">
+              Multipath:
+            </h2>
+            <span data-mm-signal="multipath-value"
+                  style="color: #ffffff; font-weight: normal; vertical-align: baseline; margin-left: 3px; font-size: 15px; transition: color 0.3s;">
+            </span>
           </div>
         `;
       }
@@ -754,43 +910,60 @@ function setPeakSegment(meterEl, peak, meterId) {
       bindTextElements();
     }
 
-    // Build or bind
     if (bindExisting) {
       bindTextElements();
       dom.meterExists = !!root.querySelector('.signal-meter-bar');
     } else if (!textOnly) {
       buildUiFull();
     } else {
-      // textOnly without bindExisting: simply bind elements
       bindTextElements();
     }
 
-    // Instance Methods
     const instance = {
       key: instanceKey,
       root,
       opts: { bindExisting, textOnly, useLegacyIds, enableAudio },
       state,
+      _destroyed: false,
 
       destroy() {
-        // Unsubscribe from Hub
+        this._destroyed = true;
         HUB.instances.delete(instanceKey);
         HUB.audio.subscribers.delete(instance);
+      },
+
+      _renderLoop() {
+        if (this._destroyed) return;
+        if (!dom.meterExists || textOnly) {
+            requestAnimationFrame(() => this._renderLoop());
+            return;
+        }
+
+        // Independently update all visual meters at 60fps to guarantee smooth peak falls
+        // regardless of whether Audio is currently playing.
+        updateMeterById(this.root, this.state.ids.left, this.state.levels.left, peaks, PEAK_CONFIG);
+        updateMeterById(this.root, this.state.ids.right, this.state.levels.right, peaks, PEAK_CONFIG);
+        
+        if (this.state.levels.hf !== undefined) {
+           updateMeterById(this.root, this.state.ids.hf, this.state.levels.hf, peaks, PEAK_CONFIG);
+        }
+        if (this.state.levels.mp !== undefined) {
+           updateMeterById(this.root, this.state.ids.mp, this.state.levels.mp, peaks, PEAK_CONFIG);
+        }
+
+        requestAnimationFrame(() => this._renderLoop());
       },
 
       _onUnit(unit) {
         state.hfUnit = String(unit || 'dbf').toLowerCase();
         state.highestSignal = -Infinity;
 
-        // Reset highest display
         if (dom.elHighest) dom.elHighest.textContent = '---';
 
-        // Update unit text in this root
         if (dom.unitEls && dom.unitEls.length) {
           dom.unitEls.forEach(span => { span.textContent = state.hfUnit; });
         }
 
-        // Update HF scale if meter exists
         if (dom.meterExists) {
           const meterEl = root.querySelector(`#${cssEscape(state.ids.hf)}`) || root.querySelector('#hf-meter');
           const levelMeter = meterEl?.closest('.signal-level-meter');
@@ -800,16 +973,19 @@ function setPeakSegment(meterEl, peak, meterId) {
             const ticks = scaleEl.querySelectorAll('div');
             newScale.forEach((txt, idx) => { if (ticks[idx]) ticks[idx].innerText = txt; });
           }
+          
+          const hfUnitLabel = root.querySelector('.hf-unit-label');
+          if (hfUnitLabel) {
+            hfUnitLabel.textContent = formatUnit(state.hfUnit);
+          }
         }
 
-        // Re-apply last value
         if (typeof state.levels.hfBase === 'number' && isFinite(state.levels.hfBase) && HUB.latestSigBase !== null) {
           instance._onSig(HUB.latestSigBase);
         }
       },
 
       _onSig(baseValue) {
-        // Display correction
         const correction = 0;
         const correctedBase = Number(baseValue) + correction;
         if (!isFinite(correctedBase)) return;
@@ -818,79 +994,95 @@ function setPeakSegment(meterEl, peak, meterId) {
         const displayHF = hfBaseToDisplay(state.hfUnit, correctedBase);
         state.levels.hfValue = displayHF;
 
-        // Export shared levels
         HUB.sharedLevels.hfBase = correctedBase;
         HUB.sharedLevels.hfValue = displayHF;
 
-        // Update Highest Signal
         if (displayHF > state.highestSignal) {
           state.highestSignal = displayHF;
           if (dom.elHighest) dom.elHighest.textContent = state.highestSignal.toFixed(1);
         }
 
-        // Update Main Text
         if (dom.elMain) {
           const parts = displayHF.toFixed(1).split('.');
           dom.elMain.textContent = parts[0];
           if (dom.elDec && parts[1]) dom.elDec.textContent = '.' + parts[1];
         }
 
-        // Update HF Bar
         const percent = hfPercentFromBase(correctedBase);
         state.levels.hf = percent;
         HUB.sharedLevels.hf = percent;
+      },
+
+      _onMultipath(val) {
+        state.levels.multipath = val;
+        
+        const wrapper = dom.root.querySelector('#data-signal-values-wrapper') || dom.root.querySelector('[data-mm-signal="values-wrapper"]');
+        
+        if (dom.elMultipathContainer && dom.elMultipathValue) {
+          if (val === null) {
+            dom.elMultipathContainer.style.display = 'none';
+            if (wrapper) wrapper.style.transform = 'translateY(0px)';
+            dom.elMultipathContainer.style.transform = 'translateY(0px)';
+          } else {
+            dom.elMultipathContainer.style.display = 'block';
+            if (wrapper) wrapper.style.transform = 'translateY(-5px)';
+            dom.elMultipathContainer.style.transform = 'translateY(-5px)';
+
+            if (Number.isNaN(val)) {
+                dom.elMultipathValue.textContent = '--%';
+            } else {
+                dom.elMultipathValue.textContent = val.toFixed(0) + '%';
+            }
+          }
+        }
+
         if (dom.meterExists && !textOnly) {
-          updateMeterById(root, state.ids.hf, percent, peaks, PEAK_CONFIG);
-          // Manually update HF peak here since updateMeterById mainly updates bar and stereo peaks
-          const meter = root.querySelector(`#${cssEscape(state.ids.hf)}`);
-          if (meter) setPeakSegment(meter, percent, state.ids.hf);
+           let safeVal = -1; // -1 means invalid/blank
+           if (val !== null && !Number.isNaN(val)) safeVal = val;
+           state.levels.mp = safeVal;
+           HUB.sharedLevels.mp = safeVal;
         }
       },
 
       _onAudio(levelL, levelR) {
-        if (!dom.meterExists || textOnly) return;
         state.levels.left = levelL;
         state.levels.right = levelR;
-
-        updateMeterById(root, state.ids.left, levelL, peaks, PEAK_CONFIG);
-        updateMeterById(root, state.ids.right, levelR, peaks, PEAK_CONFIG);
       }
     };
 
-    // Register instance
     HUB.instances.set(instanceKey, instance);
-
-    // Initialize unit for instance
     instance._onUnit(HUB.unit);
 
-    // Subscribe to audio if required
     if (enableAudio && !textOnly) {
       HUB.audio.subscribers.add(instance);
       HUB.ensureAudio();
     }
 
-    // Connect socket and apply last values
     if (opts.autoConnect !== false) {
       HUB.ensureConnected();
     }
     if (HUB.latestSigBase !== null) {
       instance._onSig(HUB.latestSigBase);
     }
-    // Apply latest audio levels
+    if (HUB.latestMultipath !== null) {
+      instance._onMultipath(HUB.latestMultipath);
+    }
     if (HUB.sharedLevels.left || HUB.sharedLevels.right) {
       instance._onAudio(HUB.sharedLevels.left, HUB.sharedLevels.right);
     }
+
+    // Start UI loop so peaks drop regardless of audio status
+    requestAnimationFrame(() => instance._renderLoop());
 
     return instance;
   }
 
   // -------------------------------------------------------
-  // Public API (Backwards Compatible)
+  // Public API
   // -------------------------------------------------------
   let defaultInstance = null;
 
   window.MetricsSignalMeter = {
-    // Legacy entry point for panel mode
     init(containerOrId = 'level-meter-container') {
       defaultInstance = createInstance(containerOrId, {
         instanceKey: 'panel',
@@ -903,7 +1095,6 @@ function setPeakSegment(meterEl, peak, meterId) {
       return defaultInstance;
     },
 
-    // New multi-instance support
     createInstance,
 
     destroyInstance(instanceKey) {
@@ -912,25 +1103,20 @@ function setPeakSegment(meterEl, peak, meterId) {
       if (inst) inst.destroy();
     },
 
-    // Headless start for data listener
     startDataListener() {
       HUB.ensureConnected();
     },
 
-    // Backwards compatibility: Broadcast signal value
     setHF(baseValue) {
       HUB.broadcastSig(baseValue);
     },
 
-    // Backwards compatibility: Set unit locally
     setHFUnit(unit) {
       HUB.setUnit(unit);
     },
 
-    // Expose shared levels
     levels: HUB.sharedLevels,
 
-    // Backwards compatibility helper
     updateMeter(meterId, level) {
       if (defaultInstance) {
         try {

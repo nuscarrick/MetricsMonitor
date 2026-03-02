@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.4b)  //
+//  metricsmonitor-scope.js                         (V2.5)   //
 //                                                           //
-//  by Highpoint               last update: 25.02.2026       //
+//  by Highpoint               last update: 02.03.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //

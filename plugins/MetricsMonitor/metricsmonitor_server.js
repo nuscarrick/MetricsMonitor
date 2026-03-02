@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.4b)   //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.5)   //
 //                                                              //
-//  by Highpoint                     last update: 25.02.2026    //
+//  by Highpoint                     last update: 02.03.2026    //
 //                                                              //
 //  Thanks for support by                                       //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
@@ -91,6 +91,7 @@ const defaultConfig = {
   // 7. Layout & UI
   MODULE_SEQUENCE: "1,2,5,0,3,4", // Order of UI modules
   CANVAS_SEQUENCE: "2,5,4",       // Order of Canvas elements
+  MultipathMode: 0,               // Set to 1 if using a TEF radio (TEF Radio smooth) or 0 if using a TEF module (Raw MP Data). Based on the assumption TEF radio MP peaks around 40%.
   LockVolumeSlider: true,         // Lock the main volume slider in UI
   EnableSpectrumOnLoad: false,    // Start spectrum automatically
   EnableAnalyzerAdminMode: false, // Enable Admin/Debug features in Analyzer
@@ -231,6 +232,7 @@ function normalizePluginConfig(json) {
     
     MODULE_SEQUENCE: typeof json.MODULE_SEQUENCE !== "undefined" ? json.MODULE_SEQUENCE : defaultConfig.MODULE_SEQUENCE,
     CANVAS_SEQUENCE: typeof json.CANVAS_SEQUENCE !== "undefined" ? json.CANVAS_SEQUENCE : defaultConfig.CANVAS_SEQUENCE,
+    MultipathMode: typeof json.MultipathMode !== "undefined" ? json.MultipathMode : defaultConfig.MultipathMode,
     LockVolumeSlider: typeof json.LockVolumeSlider !== "undefined" ? json.LockVolumeSlider : defaultConfig.LockVolumeSlider,
     EnableSpectrumOnLoad: typeof json.EnableSpectrumOnLoad !== "undefined" ? json.EnableSpectrumOnLoad : defaultConfig.EnableSpectrumOnLoad,
     EnableAnalyzerAdminMode: typeof json.EnableAnalyzerAdminMode !== "undefined" ? json.EnableAnalyzerAdminMode : defaultConfig.EnableAnalyzerAdminMode,
@@ -357,6 +359,7 @@ let MPX_MODE;
 let MPX_CHANNEL;
 let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
+let MULTIPATH_MODE;
 let LOCK_VOLUME_SLIDER;
 let ENABLE_SPECTRUM_ON_LOAD;
 let ENABLE_ANALYZER_ADMIN_MODE;
@@ -402,6 +405,9 @@ function applyConfig(newConfig) {
     // Update all variables
     MODULE_SEQUENCE = configPlugin.MODULE_SEQUENCE;
     CANVAS_SEQUENCE = configPlugin.CANVAS_SEQUENCE;
+    MULTIPATH_MODE = Number(configPlugin.MultipathMode);
+    if (isNaN(MULTIPATH_MODE)) MULTIPATH_MODE = 1;
+
     ANALYZER_SAMPLE_RATE = Number(configPlugin.sampleRate) || 192000;
     CONFIG_SAMPLE_RATE = ANALYZER_SAMPLE_RATE;
     STEREO_BOOST = Number(configPlugin.StereoBoost) || 1.0;
@@ -456,7 +462,7 @@ function applyConfig(newConfig) {
     ENABLE_MPX = isModule2Active; 
     ENABLE_ANALYZER = ENABLE_MPX;
 
-    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | Delay: ${VISUAL_DELAY_MS}ms | MPXChannel: ${MPX_CHANNEL}`);
+    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | Delay: ${VISUAL_DELAY_MS}ms | MPXChannel: ${MPX_CHANNEL} | MP Mode: ${MULTIPATH_MODE}`);
 }
 
 /**
@@ -629,7 +635,6 @@ function updateSettings() {
 
     function buildHeaderBlock() {
         // This block is injected at the top of client files
-        // NOTE: Sending renamed constants to the client to match new naming convention
         return (
           `const sampleRate = ${ANALYZER_SAMPLE_RATE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXmode = "${MPX_MODE}";    // Do not touch - this value is automatically updated via the config file\n` +
@@ -654,6 +659,7 @@ function updateSettings() {
           `const AudioMeterBoost = ${AUDIO_METER_BOOST};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MODULE_SEQUENCE = ${MODULE_SEQUENCE_JS};    // Do not touch - this value is automatically updated via the config file\n` +
           `const CANVAS_SEQUENCE = ${CANVAS_SEQUENCE_JS};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const MultipathMode = ${MULTIPATH_MODE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const LockVolumeSlider = ${LOCK_VOLUME_SLIDER};    // Do not touch - this value is automatically updated via the config file\n` +
           `const EnableSpectrumOnLoad = ${ENABLE_SPECTRUM_ON_LOAD};    // Do not touch - this value is automatically updated via the config file\n` +
           `const EnableAnalyzerAdminMode = ${ENABLE_ANALYZER_ADMIN_MODE};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -666,7 +672,6 @@ function updateSettings() {
     }
 
     function removeOldConstants(code) {
-        // Regex to remove existing constant definitions to prevent duplicates
         let out = code
         // Old names
         .replace(/^\s*const\s+minSendIntervalMs\s*=.*;[^\n]*\n?/gm, "")
@@ -706,6 +711,8 @@ function updateSettings() {
         // Other standard constants
         .replace(/^\s*const\s+MODULE_SEQUENCE\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+CANVAS_SEQUENCE\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MultipathMode\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MULTIPATH_IS_TEF_RADIO\s*=.*;[^\n]*\n?/gm, "") // clear old occurrences
         .replace(/^\s*const\s+sampleRate\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+fftSize\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+SpectrumAverageLevel\s*=.*;[^\n]*\n?/gm, "")
@@ -867,7 +874,6 @@ function updateSettings() {
             logError(`[MPX] Error updating ${label}:`, err);
         }
     }
-
 
     // Update specific files
     updateClientFile(MetricsMonitorClientFile, "metricsmonitor.js", (code) => {

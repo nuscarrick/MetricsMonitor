@@ -4,11 +4,10 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 <img width="1203" height="707" alt="grafik" src="https://github.com/user-attachments/assets/c11b8c3d-0a0d-4463-a092-e4e4712d6f76" />
 
-## v2.4b
+## v2.5
 
-- Patch against spamming detection updated
-- 5-band audiometer and VU meter adjusted
-- Fixed memory overflow issue
+- Numeric and meter display for multipath value built into signalmeter modul (code for calculation comes from the UIAddonPack plugin by AmateurAudioDude)
+- MultipathMode Variable added to adjust the multipath measurement value (see configuration options!)
 
 ## Important note for this version: 
 
@@ -96,6 +95,7 @@ The following variables can be changed in the metricsmonitor.json config file:
     /* Layout & UI */
     "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
 	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
+    "MultipathMode": 0,                //  Set to 1 if using a TEF radio (TEF Radio smooth) or 0 if using a TEF module (Raw MP Data). Based on the assumption TEF radio MP peaks around 40%.
     "LockVolumeSlider": true,          //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
 	"EnableSpectrumOnLoad": false,     //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
     "EnableAnalyzerAdminMode": false,  //  Set to true to restricts analyzer/oscilloscope display to administrators (default ist false).
@@ -165,6 +165,12 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.4b
+
+- Patch against spamming detection updated
+- 5-band audiometer and VU meter adjusted
+- Fixed memory overflow issue
 
 ### v2.4a
 - New variable ScopeInputCalibration added for calibrating the oscilloscope (see configuration options!)
