@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.5)   //
+//  metricsmonitor-scope.js                         (V2.5a)  //
 //                                                           //
-//  by Highpoint               last update: 02.03.2026       //
+//  by Highpoint               last update: 09.03.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -141,7 +141,7 @@ let __mmScopeSeq = 0;
 const __instances = new Map();
 
 /////////////////////////////////////////////////////////////////
-// GLOBAL Heartbeat Manager (Scope)  ✅ NEW / FIXED
+// GLOBAL Heartbeat Manager (Scope)
 // - Runs only if at least one Scope instance exists.
 // - Sends { type:"MPX", cmd:"scope_heartbeat" } every 2 seconds.
 // - This is analogous to metricsmonitor-analyzer.js (spectrum heartbeat),
@@ -248,7 +248,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   let globalScopeMax = 0;
   let globalScopeMin = 0;
-  const SCOPE_PEAK_DECAY = 0.98;
+  
+  // Set to 0.99 for smooth peak decay matching 60FPS animation frame rate
+  const SCOPE_PEAK_DECAY = 0.99;
 
   const TOP_MARGIN = 18;
   const BOTTOM_MARGIN = 14;
@@ -285,14 +287,12 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     if (newCenter !== null) viewCenter = newCenter;
     updateZoomBounds();
     updateCursor();
-    drawScope();
   }
 
   function setZoomY(newZoomLevel) {
     zoomLevelY = Math.max(MIN_ZOOM_Y, Math.min(MAX_ZOOM_Y, newZoomLevel));
     updateZoomBoundsY();
     updateCursor();
-    drawScope();
   }
 
   function zoomReset() {
@@ -302,7 +302,6 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     zoomLevelY = 1.0;
     updateZoomBoundsY();
     updateCursor();
-    drawScope();
   }
 
   function updateCursor() {
@@ -527,6 +526,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   //////////////////////////////////////////////////////////////////
   // Data handler (Scope)
   //////////////////////////////////////////////////////////////////
+  
   function handleMpxScope(msg) {
     if (!canvas || !canvas.isConnected) return;
     if (!msg || typeof msg !== "object") return;
@@ -536,24 +536,33 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       (Array.isArray(msg.scope) ? msg.scope :
       (Array.isArray(msg.w) ? msg.w : []));
 
-    // If packet contains an empty array, ignore it.
-    // Do NOT clear the scopeWave, to keep last valid frame visible.
-    if (sourceData.length === 0) return;
-
-    // Decay peak hold
-    globalScopeMax *= SCOPE_PEAK_DECAY;
-    globalScopeMin *= SCOPE_PEAK_DECAY;
-
-    // Update buffer
-    scopeWave = [];
-    for (let i = 0; i < sourceData.length; i++) {
-      const v = sourceData[i];
-      scopeWave.push(v);
-      if (v > globalScopeMax) globalScopeMax = v;
-      if (v < globalScopeMin) globalScopeMin = v;
+    // Simply update the scope wave data. We no longer trigger a draw directly here.
+    // The continuous animation loop handles rendering and peak decay automatically.
+    if (sourceData.length > 0) {
+      scopeWave = [];
+      for (let i = 0; i < sourceData.length; i++) {
+        const v = sourceData[i];
+        scopeWave.push(v);
+        if (v > globalScopeMax) globalScopeMax = v;
+        if (v < globalScopeMin) globalScopeMin = v;
+      }
     }
+  }
 
-    drawScope();
+  //////////////////////////////////////////////////////////////////
+  // Continuous Rendering Loop (Decoupled from WebSocket)
+  //////////////////////////////////////////////////////////////////
+  let animationId = null;
+  
+  function renderLoop() {
+      if (!canvas || !canvas.isConnected) return;
+      
+      // Decay peaks continuously per frame (at ~60 FPS)
+      globalScopeMax *= SCOPE_PEAK_DECAY;
+      globalScopeMin *= SCOPE_PEAK_DECAY;
+      
+      drawScope();
+      animationId = requestAnimationFrame(renderLoop);
   }
 
   //////////////////////////////////////////////////////////////////
@@ -570,7 +579,6 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawScope();
   }
 
   //////////////////////////////////////////////////////////////////
@@ -599,7 +607,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       else if (!isHoveringMagnifier && wasHovering) hideTooltip();
       updateCursor();
 
-      if (!isDragging) { hoverX = mouseX; drawScope(); }
+      if (!isDragging) { hoverX = mouseX; }
       if (!isDragging) return;
 
       if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) hasDragged = true;
@@ -612,14 +620,12 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       viewCenter = dragStartCenter + delta;
       updateZoomBounds();
       updateZoomBoundsY();
-      drawScope();
     });
 
     canvas.addEventListener("mouseleave", () => {
       hoverX = null;
       if (isHoveringMagnifier) { isHoveringMagnifier = false; hideTooltip(); }
       if (isDragging) { isDragging = false; hasDragged = false; updateCursor(); }
-      drawScope();
     });
 
     canvas.addEventListener("wheel", (e) => {
@@ -736,6 +742,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   function destroy() {
     try { unsubscribe?.(); } catch (e) {}
+    if (animationId) cancelAnimationFrame(animationId);
     hideTooltip();
     try { parent.innerHTML = ""; } catch (e) {}
     __instances.delete(instanceKey);
@@ -766,7 +773,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   updateZoomBounds();
   updateZoomBoundsY();
   updateCursor();
-  drawScope();
+  
+  // Start the continuous animation loop
+  renderLoop();
 
   return instance;
 }

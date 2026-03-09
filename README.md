@@ -6,10 +6,11 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 
 
-## v2.5
+## v2.5a
 
-- Numeric and meter display for multipath value built into signalmeter modul (code for calculation comes from the UIAddonPack plugin by AmateurAudioDude)
-- MultipathMode Variable added to adjust the multipath measurement value (see configuration options!)
+- Peak display in the 5-band audiometer corrected for the "fixed" setting
+- Fixed a bug in the spectrum/scope display in the module display when Canvas was started
+- Revised scope update rate
 
 ## Important note for this version: 
 
@@ -168,6 +169,11 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.5
+
+- Numeric and meter display for multipath value built into signalmeter modul (code for calculation comes from the UIAddonPack plugin by AmateurAudioDude)
+- MultipathMode Variable added to adjust the multipath measurement value (see configuration options!)
 
 ### v2.4b
 

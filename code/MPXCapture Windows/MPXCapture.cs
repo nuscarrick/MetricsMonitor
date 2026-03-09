@@ -1,5 +1,5 @@
 ﻿/*
- * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.4a)
+ * MPXCapture.cs   High-Performance MPX Analyzer Tool (v2.5a)
  *
  * Features:
  * - DSP chain (19 kHz PLL locked)
@@ -391,6 +391,9 @@ class Program
 
             int triggerHoldoffCounter = 0;
             long samplesSinceLastTrigger = 0;
+            
+            // Flag to track if we have a fresh frame to send
+            bool scopeDataUpdated = false;
 
             var dcBlocker = new DCBlocker();
             var tiltCorrector = new TiltCorrector((float)sr);
@@ -541,7 +544,10 @@ class Program
                                         scopeOutputBuf[k] = scopeRollingBuf[(startIdx + k) & 2047];
                                     }
                                     scopeTrigger = false;
-                                    triggerHoldoffCounter = 740;
+                                    triggerHoldoffCounter = 300; // Decreased holdoff to allow faster triggering
+                                    
+                                    // Mark the data as updated so the JSON builder knows
+                                    scopeDataUpdated = true;
                                 }
                             } else if (triggerHoldoffCounter > 0) {
                                 triggerHoldoffCounter--;
@@ -549,16 +555,18 @@ class Program
                                 samplesSinceLastTrigger++;
                                 bool fire = false;
                                 
-                                if (samplesSinceLastTrigger > 5500) {
+                                // Significantly lowered auto-trigger to ~1200 samples (~30 FPS) 
+                                // This prevents visual stuttering during total silence.
+                                if (samplesSinceLastTrigger > 1200) {
                                     fire = true;
                                 } else {
                                     if (isBurstMode) {
-                                        if (!triggerArmed && decRaw > 0.15f) {
+                                        if (!triggerArmed && decRaw > 0.02f) { // Lowered burst threshold
                                             fire = true;
                                             isBurstMode = false;
                                         }
                                     } else {
-                                        if (!triggerArmed && decRaw < -0.05f) {
+                                        if (!triggerArmed && decRaw < -0.01f) { // Lowered arming threshold
                                             triggerArmed = true;
                                         } else if (triggerArmed && decRaw >= 0.0f) {
                                             float prevRaw = scopeRollingRaw[(scopeRollIdx - 2) & 2047];
@@ -595,12 +603,14 @@ class Program
                         
                         sb.Append("],\"o\":[");
                         
-                        // ONLY APPEND ARRAY CONTENT IF SCOPE IS ENABLED (Otherwise it safely leaves "o":[])
-                        if (enableScope) {
+                        // ONLY APPEND ARRAY CONTENT IF SCOPE IS ENABLED AND NEW DATA IS READY
+                        if (enableScope && scopeDataUpdated) {
                             for (int k = 0; k < 1024; k++) {
                                 sb.Append(scopeOutputBuf[k].ToString("0.0000", CultureInfo.InvariantCulture));
                                 if (k < 1023) sb.Append(",");
                             }
+                            // Reset flag after sending
+                            scopeDataUpdated = false;
                         }
                         
                         sb.Append("],\"p\":"); sb.Append(smoothP.ToString("0.00", CultureInfo.InvariantCulture));

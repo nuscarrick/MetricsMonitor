@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.5)   //
+//  metricsmonitor-meters.js                        (V2.5a)  //
 //                                                           //
-//  by Highpoint               last update: 02.05.2026       //
+//  by Highpoint               last update: 09.05.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -16,34 +16,34 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "FM Server Mikrofon (2- HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 250;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = 10;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 96.20813245621108;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 101.78039701186412;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 7;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 3;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.7;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [0,3,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const MultipathMode = 0;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
 const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
-const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
+const PeakMode = "fixed";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;           // Auto-updated via config file
 

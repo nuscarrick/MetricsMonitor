@@ -1,5 +1,5 @@
 /*
- * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.4a)
+ * MPXCapture.c    High-Performance MPX Analyzer Tool (v2.5a)
  * 
  * Features:
  * - Asynchronous Input Thread (Ringbuffer) - Decouples Audio Input from DSP
@@ -886,6 +886,9 @@ int main(int argc, char **argv)
     
     int triggerHoldoffCounter = 0;
     long samplesSinceLastTrigger = 0;
+    
+    // NEW: Track if we have a fresh scope frame to send
+    int scopeDataUpdated = 0;
 
     memset(scopeRollingBuf, 0, sizeof(scopeRollingBuf));
     memset(scopeRollingRaw, 0, sizeof(scopeRollingRaw));
@@ -1007,7 +1010,11 @@ int main(int argc, char **argv)
                                 scopeOutputBuf[k] = scopeRollingBuf[(startIdx + k) & 2047];
                             }
                             scopeTrigger = 0;
-                            triggerHoldoffCounter = 740;
+                            // Lowered holdoff to allow faster triggering
+                            triggerHoldoffCounter = 300;
+                            
+                            // Mark data as updated
+                            scopeDataUpdated = 1;
                         }
                     } else if (triggerHoldoffCounter > 0) {
                         triggerHoldoffCounter--;
@@ -1015,16 +1022,19 @@ int main(int argc, char **argv)
                         samplesSinceLastTrigger++;
                         int fire = 0;
                         
-                        if (samplesSinceLastTrigger > 5500) {
+                        // Lowered auto-trigger fallback to ~30 FPS
+                        if (samplesSinceLastTrigger > 1200) {
                             fire = 1;
                         } else {
                             if (isBurstMode) {
-                                if (!triggerArmed && decRaw > 0.15f) {
+                                // Lowered burst threshold
+                                if (!triggerArmed && decRaw > 0.02f) {
                                     fire = 1;
                                     isBurstMode = 0;
                                 }
                             } else {
-                                if (!triggerArmed && decRaw < -0.05f) {
+                                // Lowered arming threshold
+                                if (!triggerArmed && decRaw < -0.01f) {
                                     triggerArmed = 1;
                                 } else if (triggerArmed && decRaw >= 0.0f) {
                                     float prevRaw = scopeRollingRaw[(scopeRollIdx - 2) & 2047];
@@ -1094,13 +1104,16 @@ int main(int argc, char **argv)
                     printf("\"s\":[],");
                 }
                 
-                if (scopeEnabled) {
+                // ONLY APPEND ARRAY CONTENT IF SCOPE IS ENABLED AND NEW DATA IS READY
+                if (scopeEnabled && scopeDataUpdated) {
                     printf("\"o\":[");
                     for (int k = 0; k < 1024; k++) {
                         printf("%.4f", scopeOutputBuf[k]);
                         if (k < 1023) printf(",");
                     }
                     printf("],");
+                    // Reset flag after sending
+                    scopeDataUpdated = 0;
                 } else {
                     printf("\"o\":[],");
                 }
