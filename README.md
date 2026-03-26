@@ -6,9 +6,9 @@ This plugin displays the detected and neighboring broadcast stations in real tim
 
 
 
-## Version 2.6c (only works from web server version 1.3.5!!!)
+## Version 2.6d (only works from web server version 1.3.5!!!)
 
-- - Direct playback of the live stream without registration
+- Corrected the shift in the display of the preceding frequency when the AudioMetrix plugin is activated.
  
 ## Installation notes:
 
@@ -51,6 +51,10 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+## Version 2.6c (only works from web server version 1.3.5!!!)
+
+- - Direct playback of the live stream without registration
 
 ## Version 2.6b (only works from web server version 1.3.5!!!)
 

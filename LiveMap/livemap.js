@@ -2,9 +2,9 @@
 
 ////////////////////////////////////////////////////////////
 ///                                                      ///
-///  LIVEMAP SCRIPT FOR FM-DX-WEBSERVER (V2.6c)          ///
+///  LIVEMAP SCRIPT FOR FM-DX-WEBSERVER (V2.6d)          ///
 ///                                                      ///
-///  by Highpoint                last update: 29.12.25   ///
+///  by Highpoint                last update: 26.03.25   ///
 ///                                                      ///
 ///  https://github.com/Highpoint2000/LiveMap            ///
 ///                                                      ///
@@ -32,7 +32,7 @@ const updateInfo = true; 			// Enable or disable version check
 	let iframeLeft = parseInt(localStorage.getItem('iframeLeft')) || 10; 
 	let iframeTop = parseInt(localStorage.getItem('iframeTop')) || 10;
 
-    const plugin_version = '2.6c';
+    const plugin_version = '2.6d';
 	const corsAnywhereUrl = 'https://cors-proxy.de:13128/';
     let lastPicode = null;
     let lastFreq = null;
@@ -275,17 +275,27 @@ body {
             audioPlayer.remove();
             audioPlayer = null;
         }
+
+        // Reset all playing icons to 'play' state
+        const activeIcons = document.querySelectorAll('.fa-square.icon-hover-effect');
+        activeIcons.forEach(icon => {
+            icon.classList.remove('fa-square');
+            icon.classList.add('fa-play');
+            icon.style.color = ''; // Revert color to default
+        });
+
         currentStreamId = null;
     }
 
-    async function handleStreamClick(id, stationName) {
+    async function handleStreamClick(id, stationName, iconElement) {
         // If clicking the same station, stop it (toggle)
         if (currentStreamId === id) {
             stopStream();
             return;
         }
 
-        stopStream();
+        stopStream(); // Stops previous and resets UI
+        
         sendToast('info', 'Play Stream', `Loading stream for ${stationName}...`, false, false);
 
         try {
@@ -308,6 +318,13 @@ body {
             
             playStream(best.linkname);
             currentStreamId = id;
+
+            // Update the clicked icon to 'stop' (square) state
+            if (iconElement) {
+                iconElement.classList.remove('fa-play');
+                iconElement.classList.add('fa-square');
+                iconElement.style.color = 'white'; // Set to white as requested
+            }
 
             sendToast('info important', 'Play Stream',
                 `<div style="max-width:150px;white-space:normal;word-break:break-all;">Playing: ${best.linkname}</div>`,
@@ -1191,8 +1208,16 @@ function receiveGPS() {;
 				const streamCell = document.createElement('td');
 				const streamLink = document.createElement('a');
 				const playIcon = document.createElement('i');
-				playIcon.className = 'fas fa-play icon-hover-effect';
+				playIcon.className = 'fas icon-hover-effect';
 				playIcon.style.cursor = 'pointer';
+
+                // Check if this station is currently playing
+                if (currentStreamId === id) {
+                    playIcon.classList.add('fa-square');
+                    playIcon.style.color = 'white';
+                } else {
+                    playIcon.classList.add('fa-play');
+                }
 				
 				streamLink.appendChild(playIcon);
                 // Modified stream link behavior
@@ -1200,7 +1225,7 @@ function receiveGPS() {;
                 streamLink.href = '#';
                 streamLink.onclick = (e) => {
                     e.preventDefault();
-                    handleStreamClick(id, station.station);
+                    handleStreamClick(id, station.station, playIcon);
                 };
 
 				streamLink.style.color = 'green';
@@ -1462,8 +1487,16 @@ function receiveGPS() {;
 						const streamCell = document.createElement('td');
 						const streamLink = document.createElement('a');
 						const playIcon = document.createElement('i');
-						playIcon.className = 'fas fa-play icon-hover-effect';
+						playIcon.className = 'fas icon-hover-effect';
 						playIcon.style.cursor = 'pointer';
+
+                        // Check if this station is currently playing
+                        if (currentStreamId === id) {
+                            playIcon.classList.add('fa-square');
+                            playIcon.style.color = 'white';
+                        } else {
+                            playIcon.classList.add('fa-play');
+                        }
 
 						streamLink.appendChild(playIcon);
                         // Modified stream link behavior
@@ -1471,7 +1504,7 @@ function receiveGPS() {;
                         streamLink.href = '#';
                         streamLink.onclick = (e) => {
                             e.preventDefault();
-                            handleStreamClick(id, station.station);
+                            handleStreamClick(id, station.station, playIcon);
                         };
 
 						streamLink.style.color = 'green';
@@ -1773,8 +1806,16 @@ function receiveGPS() {;
 						const streamCell = document.createElement('td');
 						const streamLink = document.createElement('a');
 						const playIcon = document.createElement('i');
-						playIcon.className = 'fas fa-play icon-hover-effect';
+						playIcon.className = 'fas icon-hover-effect';
 						playIcon.style.cursor = 'pointer';
+
+                        // Check if this station is currently playing
+                        if (currentStreamId === id) {
+                            playIcon.classList.add('fa-square');
+                            playIcon.style.color = 'white';
+                        } else {
+                            playIcon.classList.add('fa-play');
+                        }
 
 						streamLink.appendChild(playIcon);
                         // Modified stream link behavior
@@ -1782,7 +1823,7 @@ function receiveGPS() {;
                         streamLink.href = '#';
                         streamLink.onclick = (e) => {
                             e.preventDefault();
-                            handleStreamClick(id, station.station);
+                            handleStreamClick(id, station.station, playIcon);
                         };
 
 						streamLink.style.color = 'green';
@@ -2348,6 +2389,22 @@ function receiveGPS() {;
 			existingDiv.textContent = freq_save;
 			freqContainer.insertBefore(existingDiv, frequencyElement);
 		}
+
+		// Ensure freqContainer is a positioned ancestor
+		const containerPosition = window.getComputedStyle(freqContainer).position;
+		if (containerPosition === 'static') {
+			freqContainer.style.position = 'relative';
+		}
+
+		// Pin the small freq div absolutely to the top-center of the freq container,
+		// so it is unaffected by other plugins changing flex/block layout
+		existingDiv.style.position = 'absolute';
+		existingDiv.style.top = '46px';
+		existingDiv.style.left = '50%';
+		existingDiv.style.transform = 'translateX(-50%)';
+		existingDiv.style.marginTop = '';
+		existingDiv.style.zIndex = '1';
+
 		existingDiv.style.display = isToggleEnabled ? '' : 'none';
 		return existingDiv;
 	}
@@ -2399,21 +2456,17 @@ function receiveGPS() {;
 
             // Check if the frequency has changed
             if (freq !== previousFreq) {
-                if (frequencyElement) {
-                    freq_save = previousFreq; // Save the previous frequency
+                
+                stopStream(); // Stop stream on frequency change
 
-                    // Ensure the existingDiv is created or updated
+                if (frequencyElement) {
+                    freq_save = previousFreq;
+
+                    // ensureExistingDiv now handles all positioning
                     const existingDiv = ensureExistingDiv(freq_save);
-                    if (freq_save !== null) {
-                        existingDiv.style.marginTop = '-7px'; // Adjust the top margin
-                        existingDiv.style.position = 'fixed'; // Set the position to fixed
-                        existingDiv.style.left = '50%'; // Center horizontally
-                        existingDiv.style.top = '50%'; // Center vertically
-                        existingDiv.style.transform = 'translate(-50%, -50%)'; // Adjust position back to center
-                    }
-                    
+
                 } else {
-                    console.error('Element with ID "data-frequency" not found.'); // Log error if element is not found
+                    console.error('Element with ID "data-frequency" not found.');
                 }
 
                 previousFreq = freq; // Update the previous frequency
