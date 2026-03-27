@@ -5,12 +5,12 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1209" height="838" alt="grafik" src="https://github.com/user-attachments/assets/156c16e0-ca31-49d0-a1b2-14716a6c8ae5" />
 
 
+## v2.6
 
-## v2.5a
-
-- Peak display in the 5-band audiometer corrected for the "fixed" setting
-- Fixed a bug in the spectrum/scope display in the module display when Canvas was started
-- Revised scope update rate
+- Added dBr power display to the Canvas Scope display (thanks to Bojcha for the code)
+- Added CRT monitor effect to the Scope Monitor
+- Removed ghost peak display from the VU meter
+- Fixed a bug when switching modules in the VU meter display with the Canvas Scope Monitor enabled
 
 ## Important note for this version: 
 
@@ -169,6 +169,13 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.5a
+
+- Peak display in the 5-band audiometer corrected for the "fixed" setting
+- Fixed a bug in the spectrum/scope display in the module display when Canvas was started
+- Revised scope update rate
+
 
 ### v2.5
 

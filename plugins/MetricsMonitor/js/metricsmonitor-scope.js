@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.5a)  //
+//  metricsmonitor-scope.js                         (V2.6)   //
 //                                                           //
-//  by Highpoint               last update: 09.03.2026       //
+//  by Highpoint               last update: 27.03.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -142,10 +142,6 @@ const __instances = new Map();
 
 /////////////////////////////////////////////////////////////////
 // GLOBAL Heartbeat Manager (Scope)
-// - Runs only if at least one Scope instance exists.
-// - Sends { type:"MPX", cmd:"scope_heartbeat" } every 2 seconds.
-// - This is analogous to metricsmonitor-analyzer.js (spectrum heartbeat),
-//   but for the scope so the server can switch MPXCapture scope processing on/off.
 /////////////////////////////////////////////////////////////////
 let _heartbeatInterval = null;
 
@@ -153,16 +149,67 @@ function checkHeartbeatStatus() {
   const hasInstances = __instances.size > 0;
 
   if (hasInstances && !_heartbeatInterval) {
-    // Start heartbeat (send one immediately, then repeat)
     MpxHub.send({ type: "MPX", cmd: "scope_heartbeat" });
     _heartbeatInterval = setInterval(() => {
       MpxHub.send({ type: "MPX", cmd: "scope_heartbeat" });
     }, 2000);
   }
   else if (!hasInstances && _heartbeatInterval) {
-    // Stop heartbeat
     clearInterval(_heartbeatInterval);
     _heartbeatInterval = null;
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+// MPX Power calculation (shared, global)
+// Exported via window.MetricsSharedMpxPowerDbr for external panels
+/////////////////////////////////////////////////////////////////
+const MPX_POWER_WINDOW_SEC = 60;
+const MPX_POWER_CAL_OFFSET_DB = +0.1;
+const MPX_POWER_FLOOR = 1e-12;
+
+let _mpxPowerChunks = [];
+let _mpxPowerDbr = null;
+let _mpxPowerDisplayDbr = null;
+
+function updateMpxPower(sourceData) {
+  if (!sourceData || sourceData.length === 0) return;
+
+  let sumSquares = 0;
+  const count = sourceData.length;
+  for (let i = 0; i < count; i++) {
+    const v = sourceData[i];
+    sumSquares += v * v;
+  }
+
+  const meanSquare = Math.max(MPX_POWER_FLOOR, sumSquares / count);
+  const now = performance.now();
+
+  _mpxPowerChunks.push({ t: now, meanSquare });
+
+  const cutoff = now - (MPX_POWER_WINDOW_SEC * 1000);
+  while (_mpxPowerChunks.length > 0 && _mpxPowerChunks[0].t < cutoff) {
+    _mpxPowerChunks.shift();
+  }
+
+  if (_mpxPowerChunks.length > 0) {
+    let windowSum = 0;
+    for (let i = 0; i < _mpxPowerChunks.length; i++) {
+      windowSum += _mpxPowerChunks[i].meanSquare;
+    }
+    const windowMeanSquare = Math.max(MPX_POWER_FLOOR, windowSum / _mpxPowerChunks.length);
+
+    const refAmp = 19 / 75;
+    const refMeanSquare = (refAmp * refAmp) / 2;
+    const rawDbr = 10 * Math.log10(windowMeanSquare / refMeanSquare);
+    _mpxPowerDbr = rawDbr + MPX_POWER_CAL_OFFSET_DB;
+
+    if (_mpxPowerDisplayDbr == null) {
+      _mpxPowerDisplayDbr = _mpxPowerDbr;
+    } else {
+      _mpxPowerDisplayDbr = (_mpxPowerDisplayDbr * 0.75) + (_mpxPowerDbr * 0.25);
+    }
+    window.MetricsSharedMpxPowerDbr = _mpxPowerDisplayDbr;
   }
 }
 
@@ -219,6 +266,10 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   const SCOPE_GAIN = 1.0;
   const MPX_REF_LEVEL = 1.0;
 
+  // Phosphor effect
+  const MAX_PHOSPHOR = 23;
+  let phosphorBuffer = [];
+
   let zoomLevel = 1.0;
   let viewCenter = SCOPE_SAMPLES / 2;
   const MIN_ZOOM = 0.1;
@@ -248,7 +299,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   let globalScopeMax = 0;
   let globalScopeMin = 0;
-  
+
   // Set to 0.99 for smooth peak decay matching 60FPS animation frame rate
   const SCOPE_PEAK_DECAY = 0.99;
 
@@ -439,8 +490,8 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     ctx.setLineDash([]);
   }
 
-  function drawScopeTrace() {
-    if (!scopeWave.length) return;
+  function drawScopeTrace(wave, alpha = 1.0) {
+    if (!wave || !wave.length) return;
 
     const logicalWidth = canvas.clientWidth;
     const logicalHeight = canvas.clientHeight;
@@ -452,19 +503,23 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     let startSample = Math.floor(visibleStart) - 2;
     let endSample = Math.ceil(visibleEnd) + 2;
     startSample = Math.max(0, startSample);
-    endSample = Math.min(scopeWave.length - 1, endSample);
+    endSample = Math.min(wave.length - 1, endSample);
 
     const visibleSampleCount = visibleEnd - visibleStart;
     if (visibleSampleCount <= 0) return;
 
-    // Peak-hold background band
-    const yGlobalMax = centerY - (globalScopeMax * SCOPE_GAIN * scaleY);
-    const yGlobalMin = centerY - (globalScopeMin * SCOPE_GAIN * scaleY);
-    if (Number.isFinite(yGlobalMax) && Number.isFinite(yGlobalMin)) {
-      ctx.fillStyle = "rgba(143, 234, 255, 0.08)";
-      ctx.fillRect(0, yGlobalMax, logicalWidth, yGlobalMin - yGlobalMax);
+    // Peak-hold background band (only on the latest/current wave)
+    if (alpha === 1.0) {
+      const yGlobalMax = centerY - (globalScopeMax * SCOPE_GAIN * scaleY);
+      const yGlobalMin = centerY - (globalScopeMin * SCOPE_GAIN * scaleY);
+      if (Number.isFinite(yGlobalMax) && Number.isFinite(yGlobalMin)) {
+        ctx.fillStyle = "rgba(143, 234, 255, 0.08)";
+        ctx.fillRect(0, yGlobalMax, logicalWidth, yGlobalMin - yGlobalMax);
+      }
     }
 
+    ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.strokeStyle = "#8feaff";
     ctx.lineWidth = 1.0;
@@ -472,12 +527,13 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     let first = true;
     for (let i = startSample; i <= endSample; i++) {
       const x = OFFSET_X + ((i - visibleStart) / visibleSampleCount) * usableWidth;
-      const val = scopeWave[i] * SCOPE_GAIN;
+      const val = wave[i] * SCOPE_GAIN;
       const y = centerY - (val * scaleY);
       if (first) { ctx.moveTo(x, y); first = false; }
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
+    ctx.restore();
   }
 
   function drawScope() {
@@ -488,17 +544,20 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     drawBackground();
     drawGrid();
 
-    if (scopeWave.length > 0) {
-      drawScopeTrace();
+    if (phosphorBuffer.length > 0) {
+      for (let i = 0; i < phosphorBuffer.length; i++) {
+        const alpha = (i === phosphorBuffer.length - 1)
+          ? 1.0
+          : ((i + 1) / phosphorBuffer.length) * 0.25;
+        drawScopeTrace(phosphorBuffer[i], alpha);
+      }
     } else {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
       ctx.save();
       ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
       ctx.font = "italic 14px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("Waiting for Data...", w / 2, h / 2);
+      ctx.fillText("Waiting for Data...", canvas.clientWidth / 2, canvas.clientHeight / 2);
       ctx.restore();
     }
 
@@ -526,18 +585,15 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   //////////////////////////////////////////////////////////////////
   // Data handler (Scope)
   //////////////////////////////////////////////////////////////////
-  
+
   function handleMpxScope(msg) {
     if (!canvas || !canvas.isConnected) return;
     if (!msg || typeof msg !== "object") return;
 
-    // Accept multiple possible keys (compat)
     const sourceData = Array.isArray(msg.o) ? msg.o :
       (Array.isArray(msg.scope) ? msg.scope :
       (Array.isArray(msg.w) ? msg.w : []));
 
-    // Simply update the scope wave data. We no longer trigger a draw directly here.
-    // The continuous animation loop handles rendering and peak decay automatically.
     if (sourceData.length > 0) {
       scopeWave = [];
       for (let i = 0; i < sourceData.length; i++) {
@@ -546,6 +602,8 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
         if (v > globalScopeMax) globalScopeMax = v;
         if (v < globalScopeMin) globalScopeMin = v;
       }
+      // Update global MPX power calculation (shared across all instances)
+      updateMpxPower(sourceData);
     }
   }
 
@@ -553,16 +611,22 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   // Continuous Rendering Loop (Decoupled from WebSocket)
   //////////////////////////////////////////////////////////////////
   let animationId = null;
-  
+
   function renderLoop() {
-      if (!canvas || !canvas.isConnected) return;
-      
-      // Decay peaks continuously per frame (at ~60 FPS)
-      globalScopeMax *= SCOPE_PEAK_DECAY;
-      globalScopeMin *= SCOPE_PEAK_DECAY;
-      
-      drawScope();
-      animationId = requestAnimationFrame(renderLoop);
+    if (!canvas || !canvas.isConnected) return;
+
+    // Decay peaks continuously per frame (at ~60 FPS)
+    globalScopeMax *= SCOPE_PEAK_DECAY;
+    globalScopeMin *= SCOPE_PEAK_DECAY;
+
+    // Update phosphor buffer with latest wave data
+    if (scopeWave.length > 0) {
+      phosphorBuffer.push([...scopeWave]);
+      if (phosphorBuffer.length > MAX_PHOSPHOR) phosphorBuffer.shift();
+    }
+
+    drawScope();
+    animationId = requestAnimationFrame(renderLoop);
   }
 
   //////////////////////////////////////////////////////////////////
@@ -766,14 +830,13 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   __instances.set(instanceKey, instance);
 
-  // IMPORTANT: keep heartbeat active while at least one scope instance exists
   checkHeartbeatStatus();
 
   resize();
   updateZoomBounds();
   updateZoomBoundsY();
   updateCursor();
-  
+
   // Start the continuous animation loop
   renderLoop();
 

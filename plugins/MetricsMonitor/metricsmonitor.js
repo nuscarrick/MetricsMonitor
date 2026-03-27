@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.5a)   //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.6)    //
 //                                                             //
-//  by Highpoint               last update: 09.03.2026         //
+//  by Highpoint               last update: 27.03.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -16,38 +16,38 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "FM Server Mikrofon (2- HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const VisualDelayMs = 250;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 10;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 96.20813245621108;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 101.78039701186412;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const ScopeInputCalibration = 7;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1.7;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [0,3,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const MultipathMode = 0;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
 const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
-const PeakMode = "fixed";    // Do not touch - this value is automatically updated via the config file
+const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.5a";
+  const plugin_version = "2.6";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
@@ -383,21 +383,17 @@ function syncTextWebSocketMode(isInitial) {
   function cleanupCurrentMode() {
     const mainContainerId = "level-meter-container";
 
-    // IMPORTANT: Destroy old module instances from the main container to stop their heartbeats
     if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) window.MetricsAnalyzer.destroy(mainContainerId);
     if (window.MetricsScope && window.MetricsScope.destroy) window.MetricsScope.destroy(mainContainerId);
     if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) window.MetricsSignalAnalyzer.destroy(mainContainerId);
 
-    // If ANY overlay is visible (including scope/canvas 5), we MUST keep meters alive
     if (isCanvasVisible) {
-      // Re-enable meters WebSocket if switching between overlays
       if (window.MetricsMeters?.createWebSocket) {
         window.MetricsMeters.createWebSocket();
       }
-      return; 
+      return;
     }
 
-    // Only fully cleanup websockets if NO overlay is visible
     if (mode === 1 && window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
     if (mode === 2 && window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
     if (mode !== 1 && mode !== 2) {
@@ -410,7 +406,7 @@ function syncTextWebSocketMode(isInitial) {
   function switchModeWithFade(nextMode) {
     const meters = document.getElementById("level-meter-container");
     if (!meters) {
-      cleanupCurrentMode(); // Destroy old instances first
+      cleanupCurrentMode();
       mode = nextMode;
       buildMeters();
       syncTextWebSocketMode(false);
@@ -427,7 +423,7 @@ function syncTextWebSocketMode(isInitial) {
     meters.style.opacity = "0";
 
     setTimeout(() => {
-      cleanupCurrentMode(); // Destroy old instances first
+      cleanupCurrentMode();
       mode = nextMode;
       buildMeters();
       syncTextWebSocketMode(false);
@@ -773,32 +769,35 @@ function syncTextWebSocketMode(isInitial) {
     if (activeCanvasMode == null) activeCanvasMode = pickInitialCanvasMode();
 
     isCanvasVisible = !isCanvasVisible;
-    
-    // BUGFIX: Removed cleanupCurrentMode() here.
-    // Calling it would destroy the main small panel instances (like the Scope or Analyzer)
-    // leaving the small panel empty until a browser reload or mode switch.
 
     const button = document.getElementById("mpx-signal-toggle-button");
-    const mmContainerCombo = document.getElementById("mm-mpx-combo-flex");
-    const mmContainerSignal = document.getElementById("mm-signal-analyzer-flex");
-    const mmContainerScope = document.getElementById("mm-scope-flex");
 
     if (isCanvasVisible) {
       if (button) { button.classList.add("active"); button.classList.remove("inactive"); }
       setStandardCanvasVisibility(false);
       applyCustomContainerStyles();
 
+      // Erst erstellen, dann Referenz holen
       if (activeCanvasMode === 2) replaceMainCanvasWithMpxComboIfRequired();
       else if (activeCanvasMode === 4) replaceMainCanvasIfRequired();
       else if (activeCanvasMode === 5) replaceMainCanvasWithScopeIfRequired(true);
 
-      if (activeCanvasMode === 2 && mmContainerCombo) { mmContainerCombo.style.display = "flex"; if(window.mmTriggerResize) window.mmTriggerResize(); }
+      // Referenzen NACH dem Erstellen neu lesen
+      const mmContainerCombo   = document.getElementById("mm-mpx-combo-flex");
+      const mmContainerSignal  = document.getElementById("mm-signal-analyzer-flex");
+      const mmContainerScope   = document.getElementById("mm-scope-flex");
+
+      if (activeCanvasMode === 2 && mmContainerCombo)  { mmContainerCombo.style.display = "flex";  if(window.mmTriggerResize) window.mmTriggerResize(); }
       if (activeCanvasMode === 4 && mmContainerSignal) { mmContainerSignal.style.display = "flex"; if(window.mmTriggerResizeSignal) window.mmTriggerResizeSignal(); }
-      if (activeCanvasMode === 5 && mmContainerScope) { mmContainerScope.style.display = "flex"; if(window.mmTriggerResizeScope) window.mmTriggerResizeScope(); }
+      if (activeCanvasMode === 5 && mmContainerScope)  { mmContainerScope.style.display = "flex";  if(window.mmTriggerResizeScope) window.mmTriggerResizeScope(); }
 
       syncTextWebSocketMode(false);
     } else {
       if (button) { button.classList.remove("active"); button.removeAttribute("disabled"); button.setAttribute("aria-pressed","false"); }
+
+      const mmContainerCombo   = document.getElementById("mm-mpx-combo-flex");
+      const mmContainerSignal  = document.getElementById("mm-signal-analyzer-flex");
+      const mmContainerScope   = document.getElementById("mm-scope-flex");
 
       if (mmContainerCombo) {
           mmContainerCombo.style.display = "none";
@@ -1120,6 +1119,7 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
 
     const INTERNAL_HEIGHT = 160;
     const METERS_COL_W = 180;
+    const DBR_COL_W = 120;
 
     const CUSTOM_CSS = `
       #mm-scope-flex{
@@ -1159,29 +1159,24 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
         display: flex;
         width: 100%;
         height: 100%;
-        transform: translateX(-10px);
         justify-content: space-around;
       }
       #mm-scope-flex .level-meter { margin: -5px 1px; height: 100%; display: flex; flex-direction: column; justify-content: flex-start; position: relative; flex: 1; overflow: visible !important; }
       #mm-scope-flex .meter-top { display: flex !important; flex-direction: row !important; width: 100%; height: 100%; position: relative; }
-      #mm-scope-flex .meter-scale { display: flex !important; flex-direction: column; justify-content: space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: 9px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
+      #mm-scope-flex .meter-scale { display: flex !important; flex-direction: column; justify-content: space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: -7px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
       #mm-scope-flex .meter-wrapper { flex: 1; width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
       #mm-scope-flex .level-meter canvas { display: block !important; visibility: visible !important; width: 100% !important; max-width: 30px !important; height: auto !important; flex: 1 1 auto !important; margin-bottom: 20px !important; }
-      #mm-scope-flex .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 5px !important; margin-left: -20px !important; line-height: 1.0 !important; font-size: 10px !important; text-align: center !important; width: 100%; }
+      #mm-scope-flex .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 6px !important; line-height: 1.0 !important; font-size: 10px !important; text-align: center !important; width: 100%; }
       #mm-scope-flex .meter-bar .segment { border-bottom: 1px solid transparent !important; background-clip: padding-box !important; margin-bottom: 0 !important; box-sizing: border-box; }
-
-      /* Hide unused meters in scope overlay */
       #mm-scope-meters-inner .stereo-group,
       #mm-scope-meters-inner #mm-scope-left-meter-wrapper,
       #mm-scope-meters-inner #mm-scope-right-meter-wrapper,
       #mm-scope-meters-inner #mm-scope-hf-meter-wrapper,
       #mm-scope-meters-inner #eqHintWrapper,
       #mm-scope-meters-inner #eqHintText { display: none !important; }
-
       #mm-scope-flex #volumeSlider,
       #mm-scope-flex [id*="volume"],
       #mm-scope-flex [class*="volume"] { display: none !important; }
-
       #main-scope-container{
         position: relative;
         flex: 1;
@@ -1193,6 +1188,46 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
         border: none !important;
         outline: none !important;
         box-shadow: none !important;
+      }
+      /* ── right dBr panel ── */
+      #mm-scope-dbr-col {
+        width: ${DBR_COL_W}px;
+        min-width: ${DBR_COL_W}px;
+        flex: 0 0 ${DBR_COL_W}px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        border-left: 1px solid rgba(255,255,255,0.1);
+        padding: 8px 6px;
+        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+      }
+      #mm-scope-dbr-col .mm-dbr-heading {
+        display: block;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 4px;
+      }
+      #mm-scope-dbr-col .mm-dbr-big {
+        text-align: center;
+        line-height: 1.1;
+        margin-top: 4px;
+        width: 100%;
+        display: block;
+        font-size: 28px !important;
+      }
+      #mm-scope-dbr-col .mm-dbr-unit {
+        display: block;
+        margin-top: 5px;
+        font-size: 16px;
+        line-height: 1.2;
+        color: #888;
+        text-align: center;
+        width: 100%;
+      }
+      #mm-scope-dbr-value {
+        transition: color 0.3s;
       }
     `;
 
@@ -1210,6 +1245,7 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
     flex.style.display = (isCanvasVisible && activeCanvasMode === 5) ? "flex" : "none";
     canvasContainer.appendChild(flex);
 
+    // ── left: meters column ──
     const metersCol = document.createElement("div");
     metersCol.id = "mm-scope-meters-col";
     flex.appendChild(metersCol);
@@ -1218,11 +1254,62 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
     metersInner.id = "mm-scope-meters-inner";
     metersCol.appendChild(metersInner);
 
+    // ── centre: scope canvas ──
     const scopeHost = document.createElement("div");
     scopeHost.id = "main-scope-container";
     flex.appendChild(scopeHost);
 
-    // IMPORTANT: scope overlay uses prefixed IDs to avoid collisions with the main meters
+    // ── right: dBr panel ──
+    const dbrCol = document.createElement("div");
+    dbrCol.style.paddingTop = "30px";
+    dbrCol.id = "mm-scope-dbr-col";
+    flex.appendChild(dbrCol);
+
+    const dbrHeading = document.createElement("h2");
+    dbrHeading.className = "signal-heading mm-dbr-heading";
+    dbrHeading.textContent = "POWER";
+    dbrHeading.style.fontSize = "25px";
+    dbrHeading.style.marginBottom = "10px";
+    dbrHeading.style.marginTop = "-6px";
+    dbrCol.appendChild(dbrHeading);
+
+    const dbrBig = document.createElement("div");
+    dbrBig.className = "text-big mm-dbr-big";
+    dbrBig.style.setProperty("font-size", "36px", "important");
+    dbrCol.appendChild(dbrBig);
+
+    const dbrValue = document.createElement("span");
+    dbrValue.id = "mm-scope-dbr-value";
+    dbrValue.textContent = "--.-";
+    dbrBig.appendChild(dbrValue);
+
+    const dbrUnit = document.createElement("div");
+    dbrUnit.className = "mm-dbr-unit";
+    dbrUnit.textContent = "dBr";
+    dbrUnit.style.setProperty("font-size", "18px", "important");
+    dbrCol.appendChild(dbrUnit);
+
+    function getDbrColor(v) {
+		if (v == null || !Number.isFinite(v)) return "";
+		if (v < 3)   return "";
+		if (v < 6.9) return MeterColorWarning;
+		return MeterColorDanger;
+	}
+
+    let dbrRafId = null;
+    function dbrRenderLoop() {
+      if (!flex.isConnected) { dbrRafId = null; return; }
+      const val = window.MetricsSharedMpxPowerDbr;
+      const text = (val == null || !Number.isFinite(val))
+        ? "--.-"
+        : `${val >= 0 ? "+" : ""}${val.toFixed(1)}`;
+      dbrValue.textContent = text;
+      dbrValue.style.color = getDbrColor(val);
+      dbrRafId = requestAnimationFrame(dbrRenderLoop);
+    }
+    dbrRafId = requestAnimationFrame(dbrRenderLoop);
+
+    // ── meters init ──
     if (window.MetricsMeters && window.MetricsMeters.initMeters) {
         setTimeout(() => {
             window.MetricsMeters.initMeters(metersInner);
@@ -1234,10 +1321,8 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
             idsToPrefix.forEach((id) => {
                 const el = metersInner.querySelector(`#${id}`);
                 if (el) {
-                    // wrap first
                     const wrapper = el.closest(".level-meter");
                     if (wrapper) wrapper.id = SCOPE_PREFIX + id + "-wrapper";
-                    // then prefix the canvas id
                     el.id = SCOPE_PREFIX + id;
                     if (el.width === 0) el.width = 40;
                     if (el.height === 0) el.height = 200;
@@ -1246,6 +1331,7 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
         }, 250);
     }
 
+    // ── scope init ──
     const ensureScope = (attempt = 0) => {
         const scope = window.MetricsScope;
         if (!scope || typeof scope.init !== "function") {
@@ -1308,17 +1394,14 @@ const CUSTOM_CSS = `
   #mm-combo-meters-col .meter-scale { display: flex !important; flex-direction: column; justify-space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: -7px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
   #mm-combo-meters-col .meter-wrapper { flex: 1; width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
   #mm-combo-meters-col .level-meter canvas { display: block ! important; visibility: visible !important; width: 100% !important; max-width: 30px ! important; height: auto !important; flex: 1 1 auto !important; margin-bottom: 0px !important; }
-  #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 5px !important; line-height: 1.0 !important; font-size: 10px !important; }
+  #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 6px !important; line-height: 1.0 !important; font-size: 10px !important; }
   #mm-combo-meters-col .meter-bar .segment { border-bottom: 1px solid transparent !important; background-clip: padding-box !important; margin-bottom: 0 !important; box-sizing: border-box; }
-  
-  /* Hide the prefixed IDs only for the combo column */
   #mm-combo-meters-inner .stereo-group, 
   #mm-combo-meters-inner #mm-combo-left-meter-wrapper, 
   #mm-combo-meters-inner #mm-combo-right-meter-wrapper, 
   #mm-combo-meters-inner #mm-combo-hf-meter-wrapper, 
   #mm-combo-meters-inner #eqHintWrapper, 
   #mm-combo-meters-inner #eqHintText { display: none !important; }
-  
   #mm-mpx-combo-flex #volumeSlider, 
   #mm-mpx-combo-flex [id*="volume"], 
   #mm-mpx-combo-flex [class*="volume"] { display: none ! important; }

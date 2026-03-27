@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-meters.js                        (V2.5a)  //
+//  metricsmonitor-meters.js                        (V2.6)  //
 //                                                           //
-//  by Highpoint               last update: 09.05.2026       //
+//  by Highpoint               last update: 27.03.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -16,36 +16,37 @@
 const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
 const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "FM Server Mikrofon (2- HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
 const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const VisualDelayMs = 250;    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 10;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 96.20813245621108;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 101.78039701186412;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
 const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const ScopeInputCalibration = 7;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 3;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1.7;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [0,3,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
 const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
 const MultipathMode = 0;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
 const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
-const PeakMode = "fixed";    // Do not touch - this value is automatically updated via the config file
+const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;           // Auto-updated via config file
+
+const MeterTiltCalibration = -900;           // Auto-updated via config file
 
     // Debug flags
     const ENABLE_DEBUG = false;
@@ -278,35 +279,37 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     // ==========================================================
     // Peak segment rendering
     // ==========================================================
-    function setPeakSegment(meterEl, peakPercent, meterId) {
-        const segments = meterEl.querySelectorAll(".segment");
-        if (!segments.length) return;
+function setPeakSegment(meterEl, peakPercent, meterId) {
+    const segments = meterEl.querySelectorAll(".segment");
+    if (!segments.length) return;
 
-        const prev = meterEl.querySelector(".segment.peak-flag");
-        if (prev) {
-            prev.classList.remove("peak-flag");
-            prev.style.backgroundColor = "";
-            prev.style.boxShadow = "";
-            prev.style.opacity = "";
-        }
+    // Clear ALL peak flags in this meter first (not just one)
+    meterEl.querySelectorAll(".segment.peak-flag").forEach(prev => {
+        prev.classList.remove("peak-flag");
+        prev.style.removeProperty("background-color");
+        prev.style.removeProperty("box-shadow");
+        prev.style.removeProperty("opacity");
+    });
 
-        const idx = Math.max(0, Math.min(segments.length - 1, Math.round((peakPercent / 100) * segments.length) - 1));
-        const seg = segments[idx];
-        if (!seg) return;
+    if (peakPercent <= 0) return; // No peak to draw
 
-        seg.classList.add("peak-flag");
+    const idx = Math.max(0, Math.min(segments.length - 1, Math.round((peakPercent / 100) * segments.length) - 1));
+    const seg = segments[idx];
+    if (!seg) return;
 
-        let peakColor = "";
-        if (meterId && (meterId.includes("left") || meterId.includes("right"))) {
-            peakColor = PeakMode === "fixed" ? PeakColorFixed : getStereoColorForPercent(peakPercent, segments.length);
-        } else if (meterId && meterId.includes("mpx")) {
-            peakColor = getMpxColorForIndex(idx, segments.length);
-        }
+    seg.classList.add("peak-flag");
 
-        if (peakColor) {
-            seg.style.setProperty("background-color", peakColor, "important");
-        }
+    let peakColor = "";
+    if (meterId && (meterId.includes("left") || meterId.includes("right"))) {
+        peakColor = PeakMode === "fixed" ? PeakColorFixed : getStereoColorForPercent(peakPercent, segments.length);
+    } else if (meterId && meterId.includes("mpx")) {
+        peakColor = getMpxColorForIndex(idx, segments.length);
     }
+
+    if (peakColor) {
+        seg.style.setProperty("background-color", peakColor, "important");
+    }
+}
 
     // ==========================================================
     // DOM creation
@@ -374,15 +377,15 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     function updateMeter(meterId, level, rawValueOverride = null) {
         const baseId = meterId;
         const targets = [];
-        
+
         // 1. Standard module ID
         const el1 = document.getElementById(baseId);
         if (el1) targets.push(el1);
-        
+
         // 2. Combo layout ID
         const el2 = document.getElementById(`mm-combo-${baseId}`);
         if (el2 && el2 !== el1) targets.push(el2);
-        
+
         // 3. Scope layout ID
         const el3 = document.getElementById(`mm-scope-${baseId}`);
         if (el3 && el3 !== el1 && el3 !== el2) targets.push(el3);
@@ -396,14 +399,13 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
         else if (meterId.includes("right")) updatePeakValue("right", safeLevel);
         else if (meterId.includes("mpx")) updatePeakValue("mpx", safeLevel);
 
-        // Pre-calculate Text Value once for all targets to ensure consistency
+        // Pre-calculate text value once for all targets to ensure consistency
         let sharedText = "-";
-        const rdsDisabled = meterId.includes("rds") && !RDS_ENABLED;
+        const rdsDisabled  = meterId.includes("rds")          && !RDS_ENABLED;
         const pilotDisabled = meterId.includes("stereo-pilot") && !PILOT_ENABLED;
-        const mpxDisabled = meterId.includes("mpx") && !MPX_ENABLED;
+        const mpxDisabled  = meterId.includes("mpx")          && !MPX_ENABLED;
 
-        // --- Determine Update Speed ---
-        // MPX/RDS/Pilot/HF update slower (1000ms), Audio updates fast (50ms)
+        // MPX/RDS/Pilot update slower (1000 ms), audio meters update fast (50 ms)
         const isSlowUpdate = meterId.includes("mpx") || meterId.includes("rds") || meterId.includes("stereo-pilot");
         const updateInterval = isSlowUpdate ? 1000 : 50;
         const now = Date.now();
@@ -417,22 +419,22 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
                 sharedText = dB.toFixed(1);
             } else if (meterId.includes("hf")) {
                 let syncText = null;
-                
+
                 // Read the actual HTML text elements of the large SignalMeter directly
-                const mainSpan = document.querySelector('[data-mm-signal="main"]') || document.getElementById('data-signal');
-                const decSpan = document.querySelector('[data-mm-signal="decimal"]') || document.getElementById('data-signal-decimal');
-                
+                const mainSpan = document.querySelector('[data-mm-signal="main"]')  || document.getElementById("data-signal");
+                const decSpan  = document.querySelector('[data-mm-signal="decimal"]') || document.getElementById("data-signal-decimal");
+
                 // If the large display is active and visible, concatenate the text
                 if (mainSpan && mainSpan.innerText && mainSpan.innerText.trim() !== "-" && mainSpan.innerText.trim() !== "") {
                     syncText = mainSpan.innerText + (decSpan && decSpan.innerText ? decSpan.innerText : "");
                 }
-                
-                // If text is found, use it 1:1. If Module 3 is disabled, use the fallback calculation.
+
+                // Use live display text if available; fall back to percentage calculation otherwise
                 if (syncText) {
                     sharedText = syncText;
                 } else {
                     const dBuV_from_percent = (safeLevel / 100) * 90;
-                    let baseHF = dBuV_from_percent + 10.875;
+                    const baseHF = dBuV_from_percent + 10.875;
                     sharedText = hfBaseToDisplay(baseHF).toFixed(1);
                 }
             } else if (meterId.includes("stereo-pilot")) {
@@ -446,8 +448,8 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
             }
         }
 
-        const cDanger = parseRgb(MeterColorDanger);
-        const cSafe = parseRgb(MeterColorSafe);
+        const cDanger  = parseRgb(MeterColorDanger);
+        const cSafe    = parseRgb(MeterColorSafe);
         const cWarning = parseRgb(MeterColorWarning);
 
         // Render all targets
@@ -455,53 +457,67 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
             const segments = meter.querySelectorAll(".segment");
             const activeCount = Math.round((safeLevel / 100) * segments.length);
 
+            // FIX: Clear ALL existing peak-flags on this meter BEFORE the render loop.
+            // This prevents ghost peaks caused by the old "skip if peak-flag" guard
+            // which left stale colored segments behind when the peak marker moved.
+            meter.querySelectorAll(".segment.peak-flag").forEach((prev) => {
+                prev.classList.remove("peak-flag");
+                prev.style.removeProperty("background-color");
+                prev.style.removeProperty("box-shadow");
+                prev.style.removeProperty("opacity");
+            });
+
             // Bar Segments
             segments.forEach((seg, i) => {
                 if (rdsDisabled || pilotDisabled || mpxDisabled) {
                     seg.style.setProperty("background-color", "#333", "important");
                     return;
                 }
-                if (seg.classList.contains("peak-flag")) return;
+                // NOTE: the old "if peak-flag → return" guard has been removed.
+                // Peak flags are now cleared above before this loop runs, so every
+                // segment is always redrawn correctly on each frame.
 
                 let finalColor = "#333";
                 if (i < activeCount) {
                     if (meterId.includes("left") || meterId.includes("right")) {
-                        // Change offset to - 5 to align perfectly with the 0.0 dB mark
+                        // Top 5 segments = red zone (0 dB to +5 dB)
                         if (i >= segments.length - 5) finalColor = getScaledColor(cDanger, 1.0);
                         else finalColor = getScaledColor(cSafe, 0.4 + ((i / segments.length) * 0.4));
                     } else if (meterId.includes("stereo-pilot")) {
-                        if (i < segments.length * 0.5) finalColor = applyIntensity(cSafe, 0.4 + (i / (segments.length * 0.5)) * 0.4);
-                        else finalColor = applyIntensity(cDanger, 0.6 + (0.4 * ((i - segments.length * 0.5) / (segments.length * 0.5))));
+                        if (i < segments.length * 0.5)
+                            finalColor = applyIntensity(cSafe,   0.4 + (i / (segments.length * 0.5)) * 0.4);
+                        else
+                            finalColor = applyIntensity(cDanger, 0.6 + (0.4 * ((i - segments.length * 0.5) / (segments.length * 0.5))));
                     } else if (meterId.includes("rds")) {
                         const idx1 = Math.round((2.5 / 16) * segments.length);
                         const idx2 = Math.round((3.5 / 16) * segments.length);
-                        if (i < idx1) finalColor = applyIntensity(cSafe, 0.4 + (i / idx1) * 0.4);
+                        if (i < idx1)       finalColor = applyIntensity(cSafe,    0.4 + (i / idx1) * 0.4);
                         else if (i <= idx2) finalColor = applyIntensity(cWarning, 1.0);
-                        else finalColor = applyIntensity(cDanger, 0.6 + (0.4 * ((i - idx2) / (segments.length - idx2))));
+                        else                finalColor = applyIntensity(cDanger,  0.6 + (0.4 * ((i - idx2) / (segments.length - idx2))));
                     } else if (meterId.includes("mpx")) {
                         finalColor = getMpxColorForIndex(i, segments.length);
                     } else if (meterId.includes("hf")) {
                         const hfIdx = Math.round((20 / 90) * segments.length);
-                        if (i < hfIdx) finalColor = applyIntensity(cDanger, 0.6 + (0.4 * (i/hfIdx)));
-                        else finalColor = applyIntensity(cSafe, 0.4 + ((i / segments.length) * 0.4));
+                        if (i < hfIdx) finalColor = applyIntensity(cDanger, 0.6 + (0.4 * (i / hfIdx)));
+                        else           finalColor = applyIntensity(cSafe,   0.4 + ((i / segments.length) * 0.4));
                     } else {
-                        if (i < segments.length * 0.6) finalColor = applyIntensity(cSafe, 1.0);
+                        if      (i < segments.length * 0.6) finalColor = applyIntensity(cSafe,    1.0);
                         else if (i < segments.length * 0.8) finalColor = applyIntensity(cWarning, 1.0);
-                        else finalColor = applyIntensity(cDanger, 1.0);
+                        else                                finalColor = applyIntensity(cDanger,  1.0);
                     }
                 }
                 seg.style.setProperty("background-color", finalColor, "important");
             });
 
-            // Peak Flags
-            if (meterId.includes("left")) setPeakSegment(meter, peaks.left.value, meterId);
+            // Draw peak flags AFTER the bar loop (so they always sit on top of bar colors)
+            if      (meterId.includes("left"))  setPeakSegment(meter, peaks.left.value,  meterId);
             else if (meterId.includes("right")) setPeakSegment(meter, peaks.right.value, meterId);
-            else if (meterId.includes("mpx")) setPeakSegment(meter, peaks.mpx.value, meterId);
+            else if (meterId.includes("mpx"))   setPeakSegment(meter, peaks.mpx.value,   meterId);
 
-            // Text Value Update (THROTTLED)
-            const wrapper = meter.closest('.meter-wrapper');
+            // Throttled text value update
+            const wrapper = meter.closest(".meter-wrapper");
             if (wrapper) {
-                const valDisp = wrapper.querySelector('.value-display');
+                const valDisp = wrapper.querySelector(".value-display");
                 if (valDisp) {
                     const lastUpdate = parseInt(valDisp.getAttribute("data-last-update") || "0");
                     if (now - lastUpdate > updateInterval) {
