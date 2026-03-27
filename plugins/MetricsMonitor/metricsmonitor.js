@@ -481,7 +481,7 @@ function syncTextWebSocketMode(isInitial) {
     panel.id = "signalPanel";
     panel.innerHTML = "";
     panel.style.cssText =
-      "position: relative; min-height: 235px; height: 235px; padding: 10px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; margin-top: -88px; overflow: hidden; align-items: stretch;";
+      "position: relative; min-height: 235px; height: 235px; padding: 10px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; margin-top: -90px; overflow: hidden; align-items: stretch;";
 
     const icons = document.createElement("div");
     icons.id = "signal-icons";
