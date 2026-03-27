@@ -12,6 +12,9 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 - Removed ghost peak display from the VU meter
 - Fixed a bug when switching modules in the VU meter display with the Canvas Scope Monitor enabled
 
+You can find the current manual for version 2.6 here:
+https://highpoint.fmdx.org/manuals/MetricsMonitor-Documentation.html
+
 ## Important note for this version: 
 
 To use the MPX switching option with an ESP32 TEF receiver, this firmware version must be installed:
