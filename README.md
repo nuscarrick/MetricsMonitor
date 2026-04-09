@@ -2,7 +2,8 @@
 
 FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1209" height="838" alt="grafik" src="https://github.com/user-attachments/assets/156c16e0-ca31-49d0-a1b2-14716a6c8ae5" />
+<img width="1201" height="837" alt="grafik" src="https://github.com/user-attachments/assets/733643c5-11f1-4bc4-8fba-da045c21f647" />
+
 
 
 ## v2.7
