@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signal-analyzer.js               (V2.6)   //
+//  metricsmonitor-signal-analyzer.js               (V2.7)   //
 //                                                           //
-//  by Highpoint               last update: 27.03.2026       //
+//  by Highpoint               last update: 09.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //

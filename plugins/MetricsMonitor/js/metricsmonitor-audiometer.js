@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-audiometer.js                    (V2.6)   //
+//  metricsmonitor-audiometer.js                    (V2.7)   //
 //                                                           //
-//  by Highpoint               last update: 27.03.2026       //
+//  by Highpoint               last update: 09.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -523,24 +523,9 @@ function setupAudioEQ() {
       smoothedLevelR = 0;
     }
 
-    if (!eqAnalyser || !eqDataArray) {
-      eqAnalyser = eqAudioContext.createAnalyser();
-      eqAnalyser.fftSize = fftSize; // Use the configured global fftSize
-      eqAnalyser.smoothingTimeConstant = 0.6;
-      
-      // Adjust the native decibel bounds of the Analyser.
-      eqAnalyser.minDecibels = -80; 
-      eqAnalyser.maxDecibels = -15; 
-      
-      eqDataArray = new Uint8Array(eqAnalyser.frequencyBinCount);
-    }
-
     // Connect source only if changed or disconnected
     if (eqSourceNode !== sourceNode) {
       eqSourceNode = sourceNode;
-      try { eqSourceNode.connect(eqAnalyser); } catch(e){
-        if (e.name !== 'InvalidAccessError') console.warn('AudioMeter connect error:', e);
-      }
     }
 
     if (!stereoSplitter) {
@@ -551,10 +536,22 @@ function setupAudioEQ() {
       // Increased FFT size for smoother and more accurate extraction
       stereoAnalyserL.fftSize = 4096;
       stereoAnalyserR.fftSize = 4096;
+      
+      // Apply the smoothing and dB bounds to both Left and Right analyzers
+      stereoAnalyserL.smoothingTimeConstant = 0.6;
+      stereoAnalyserL.minDecibels = -80; 
+      stereoAnalyserL.maxDecibels = -15; 
+      
+      stereoAnalyserR.smoothingTimeConstant = 0.6;
+      stereoAnalyserR.minDecibels = -80; 
+      stereoAnalyserR.maxDecibels = -15; 
 
       // Initialize high precision 32-bit float arrays
       stereoDataL = new Float32Array(stereoAnalyserL.fftSize);
       stereoDataR = new Float32Array(stereoAnalyserR.fftSize);
+      
+      // Initialize EQ data array from one of the analyzers
+      eqDataArray = new Uint8Array(stereoAnalyserL.frequencyBinCount);
 
       try { eqSourceNode.connect(stereoSplitter); } catch(e){
         if (e.name !== 'InvalidAccessError') console.warn('AudioMeter splitter connect error:', e);
@@ -572,6 +569,7 @@ function setupAudioEQ() {
     console.error("MetricsAudioMeter: Error while setting up audio analyser", e);
   }
 }
+
 
 // Logarithmic dB scale parameters for the UI Meter
 // Scale goes from +5dB down to -26dB (Total range: 31dB)
@@ -616,16 +614,27 @@ function startEqAnimation() {
         return;
     }
 
-    if (!eqAnalyser || !eqDataArray) {
+    if (!stereoAnalyserL || !stereoAnalyserR || !eqDataArray) {
       eqAnimationId = requestAnimationFrame(loop);
       return;
     }
 
     // ---- AudioMeter Calculation (Frequency / EQ) ----
-    eqAnalyser.getByteFrequencyData(eqDataArray);
-    
     const currentSampleRate = eqAudioContext.sampleRate || 48000;
-    const bands5 = mmCompute5BandLevels(eqDataArray, currentSampleRate, eqAnalyser.fftSize);
+    
+    // Get Frequency data for LEFT channel
+    stereoAnalyserL.getByteFrequencyData(eqDataArray);
+    const bandsL = mmCompute5BandLevels(eqDataArray, currentSampleRate, stereoAnalyserL.fftSize);
+    
+    // Get Frequency data for RIGHT channel
+    stereoAnalyserR.getByteFrequencyData(eqDataArray);
+    const bandsR = mmCompute5BandLevels(eqDataArray, currentSampleRate, stereoAnalyserR.fftSize);
+
+    // Merge the two channels by taking the highest value for each frequency band
+    const bands5 = [];
+    for (let i = 0; i < EQ_BAND_COUNT; i++) {
+        bands5[i] = Math.max(bandsL[i] || 0, bandsR[i] || 0);
+    }
 
     for (let i = 0; i < EQ_BAND_COUNT; i++) {
       let targetPercent = 0;

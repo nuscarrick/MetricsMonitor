@@ -1,14 +1,15 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-signalmeter.js                  (V2.6)    //
+//  metricsmonitor-signalmeter.js                  (V2.7)    //
 //                                                           //
-//  by Highpoint               last update: 27.03.2026       //
+//  by Highpoint               last update: 09.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude,     //
 //  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
+//                                                           //
 //                                                           //
 ///////////////////////////////////////////////////////////////
 
@@ -45,7 +46,7 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
+const MeterTiltCalibration = -900;    
 
 const CONFIG = (window.MetricsMonitor && window.MetricsMonitor.Config) ? window.MetricsMonitor.Config : {};
 
@@ -59,7 +60,6 @@ style.innerHTML = `
     margin-bottom: 0 !important;
     box-sizing: border-box;
   }
-  /* SCOPED: only apply to signal-meter-bar segments, not all segments on the page */
   .signal-meter-bar .segment.peak-flag {
     z-index: 10;
     box-shadow: 0 0 4px rgba(255, 255, 255, 0.4);
@@ -143,21 +143,11 @@ document.head.appendChild(style);
     return (Math.max(0, Math.min(90, dBuV)) / 90) * 100;
   }
 
-  function buildHFScale(unit) {
-    const baseScale_dBuV = [90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
-    const ssu = (unit || '').toLowerCase();
-    const round10 = (v) => Math.round(v / 10) * 10;
-    if (ssu === 'dbm') return baseScale_dBuV.map(v => `${round10(v - 108.875)}`);
-    if (ssu === 'dbf') return baseScale_dBuV.map(v => `${round10(v + 10.875)}`);
-    return baseScale_dBuV.map(v => `${round10(v)}`);
-  }
-
   // -------------------------------------------------------
   // Multipath calculation
-  // Algorithm adopted from UIAddonPack plugin by AmateurAudioDude.
   // -------------------------------------------------------
   const MULTIPATH_SIGNAL_THRESHOLD_DBF = 25;
-  const MULTIPATH_TIMEOUT_DURATION = 800;
+  const MULTIPATH_TIMEOUT_DURATION = 250;
 
   function smoothInterpolationMultipath(raw) {
     let isTefMode = true;
@@ -187,7 +177,7 @@ document.head.appendChild(style);
   }
 
   // -------------------------------------------------------
-  // Peak value tracking (same logic as audiometer)
+  // Peak value tracking
   // -------------------------------------------------------
   function updatePeakValue(peaks, channel, current, holdMs, smoothing, decayRate) {
     const p = peaks[channel];
@@ -201,12 +191,9 @@ document.head.appendChild(style);
     let actualHoldMs  = holdMs;
     let actualDecay   = (typeof decayRate === 'number') ? decayRate : 2.5;
 
-    if (channel === 'mp') {
+    if (channel === 'cci' || channel === 'aci') {
       actualHoldMs = 200;
       actualDecay  = 8.0;
-    } else if (channel === 'hf') {
-      actualHoldMs = 1500;
-      actualDecay  = 1.0;
     } else {
       actualDecay = 2.0;
     }
@@ -221,13 +208,12 @@ document.head.appendChild(style);
   }
 
   // -------------------------------------------------------
-  // setPeakSegment — identical pattern to audiometer
+  // setPeakSegment
   // -------------------------------------------------------
   function setPeakSegment(meterEl, peak, meterId) {
     const segments = meterEl.querySelectorAll('.segment');
     if (!segments.length) return;
 
-    // Clear previous peak flags
     const prevAll = meterEl.querySelectorAll('.segment.peak-flag');
     prevAll.forEach((prev) => {
       prev.classList.remove('peak-flag');
@@ -250,14 +236,7 @@ document.head.appendChild(style);
       peakColor = PeakColorFixed;
     } else if (meterId.includes('left') || meterId.includes('right')) {
       peakColor = stereoColorForPercent(peak, segments.length);
-    } else if (meterId.includes('hf')) {
-      const hfThresholdIndex = Math.round((20 / 90) * segments.length);
-      if (idx < hfThresholdIndex) {
-        peakColor = applyIntensity(parseRgb(MeterColorDanger), 0.6 + (idx / Math.max(1, hfThresholdIndex)) * 0.4);
-      } else {
-        peakColor = applyIntensity(parseRgb(MeterColorSafe), 0.4 + ((idx / segments.length) * 0.6));
-      }
-    } else if (meterId.includes('mp')) {
+    } else if (meterId.includes('aci') || meterId.includes('cci')) {
       peakColor = mpColorForIndex(idx, segments.length);
     }
 
@@ -265,8 +244,7 @@ document.head.appendChild(style);
   }
 
   // -------------------------------------------------------
-  // updateMeter — clears ALL peak-flags BEFORE the segment
-  // render loop so ghost peaks can never persist.
+  // updateMeter
   // -------------------------------------------------------
   function updateMeter(meterId, level, root, peaks, peakCfg) {
     const meter = root
@@ -282,9 +260,6 @@ document.head.appendChild(style);
     const cDanger = parseRgb(MeterColorDanger);
     const cSafe   = parseRgb(MeterColorSafe);
 
-    // FIX: Clear ALL existing peak-flags BEFORE the render loop.
-    // The old guard "if (peak-flag) return" left stale colored segments
-    // behind whenever _renderLoop and _onAudio ran in the same frame.
     meter.querySelectorAll('.segment.peak-flag').forEach((prev) => {
       prev.classList.remove('peak-flag');
       prev.style.removeProperty('background-color');
@@ -292,7 +267,6 @@ document.head.appendChild(style);
       prev.style.removeProperty('opacity');
     });
 
-    // Render all segments — no skip-guard needed since flags were cleared above
     segments.forEach((seg, i) => {
       let finalColor = '#333';
       if (i < activeCount) {
@@ -302,14 +276,7 @@ document.head.appendChild(style);
           } else {
             finalColor = applyIntensity(cSafe, 0.4 + ((i / segments.length) * 0.6));
           }
-        } else if (meterId.includes('hf')) {
-          const hfThresholdIndex = Math.round((20 / 90) * segments.length);
-          if (i < hfThresholdIndex) {
-            finalColor = applyIntensity(cDanger, 0.6 + ((i / hfThresholdIndex) * 0.4));
-          } else {
-            finalColor = applyIntensity(cSafe, 0.4 + ((i / segments.length) * 0.6));
-          }
-        } else if (meterId.includes('mp')) {
+        } else if (meterId.includes('aci') || meterId.includes('cci')) {
           finalColor = mpColorForIndex(i, segments.length);
         }
       }
@@ -320,12 +287,11 @@ document.head.appendChild(style);
 
     const key = meterId.includes('left')  ? 'left'
               : meterId.includes('right') ? 'right'
-              : meterId.includes('mp')    ? 'mp'
-              : meterId.includes('hf')    ? 'hf'
+              : meterId.includes('cci')   ? 'cci'
+              : meterId.includes('aci')   ? 'aci'
               : null;
 
     if (key && peaks[key] !== undefined) {
-      // Draw peak flag AFTER bar loop so it always sits on top of bar colors
       updatePeakValue(peaks, key, isInvalid ? -1 : safeLevel,
         peakCfg ? peakCfg.holdMs : 5000,
         peakCfg ? peakCfg.smoothing : 0.85,
@@ -360,6 +326,8 @@ document.head.appendChild(style);
       instances: new Map(),
       latestSigBase: null,
       latestMultipath: null,
+      latestAci: null,
+      latestCci: null,
 
       lastMultipathProcessTime: 0,
       prevFreq: 0,
@@ -371,7 +339,8 @@ document.head.appendChild(style);
       sharedLevels: {
         hf: 0, hfValue: 0, hfBase: 0,
         left: 0, right: 0,
-        mp: -1
+        mp: -1,
+        aci: -1, cci: -1
       },
 
       ensureConnected() {
@@ -409,6 +378,7 @@ document.head.appendChild(style);
                   if (currentFreq !== 0 && this.prevFreq !== currentFreq) {
                     this.prevFreq = currentFreq;
                     this.broadcastMultipath(NaN);
+                    this.broadcastAciCci(-1, -1);
                     return;
                   }
                   this.prevFreq = currentFreq;
@@ -427,6 +397,15 @@ document.head.appendChild(style);
                     } else {
                       this.broadcastMultipath(NaN);
                     }
+                    
+                    // SignalGuard ACI & CCI Calculation
+                    let rawCci = parseInt(sigRawValues[1], 10);
+                    let rawAci = sigRawValues.length > 2 ? parseInt(sigRawValues[2], 10) : NaN;
+                    
+                    let cci = (rawCci >= 0 && rawCci <= 100) ? rawCci : -1;
+                    let aci = (rawAci >= 0 && rawAci <= 100) ? rawAci : -1;
+
+                    this.broadcastAciCci(aci, cci);
                   }
                 }
               } catch {}
@@ -455,6 +434,14 @@ document.head.appendChild(style);
         }
       },
 
+      broadcastAciCci(aci, cci) {
+        this.latestAci = aci;
+        this.latestCci = cci;
+        for (const inst of this.instances.values()) {
+          try { inst._onAciCci(aci, cci); } catch {}
+        }
+      },
+
       setUnit(unit) {
         if (!unit) return;
         this.unit = String(unit).toLowerCase();
@@ -463,11 +450,6 @@ document.head.appendChild(style);
         }
       },
 
-      // -------------------------------------------------------
-      // Shared Audio subsystem — identical to audiometer pattern
-      // Uses module-level variables (not hub-level closures) so
-      // that context resets and reconnects are handled cleanly.
-      // -------------------------------------------------------
       audio: {
         ctx: null,
         sourceNode: null,
@@ -494,7 +476,7 @@ document.head.appendChild(style);
             !Stream.Fallback.Player ||
             !Stream.Fallback.Player.Amplification
           ) {
-            return; // Not ready yet — interval will retry
+            return; 
           }
 
           const player    = Stream.Fallback.Player;
@@ -504,7 +486,6 @@ document.head.appendChild(style);
           try {
             const ctx = sourceNode.context;
 
-            // Context changed → full reset (same as audiometer)
             if (A.ctx !== ctx) {
               A.ctx          = ctx;
               A.splitter     = null;
@@ -517,7 +498,6 @@ document.head.appendChild(style);
               A.smoothedLevelR = 0;
             }
 
-            // Create analysers with Float32 arrays (same as audiometer)
             if (!A.analyserL || !A.dataL) {
               A.analyserL = ctx.createAnalyser();
               A.analyserR = ctx.createAnalyser();
@@ -564,8 +544,6 @@ document.head.appendChild(style);
     return hub;
   }
 
-  // Audio animation loop — module-level function so it is not
-  // recreated on every hub access (avoids closure staleness).
   function startAudioLoop(A, hub) {
     if (A.rafId) cancelAnimationFrame(A.rafId);
 
@@ -576,7 +554,6 @@ document.head.appendChild(style);
       }
 
       if (A.analyserL && A.analyserR && A.dataL && A.dataR) {
-        // Ensure Float32Array sizes still match (context rebuild guard)
         if (A.dataL.length !== A.analyserL.fftSize) {
           A.dataL = new Float32Array(A.analyserL.fftSize);
           A.dataR = new Float32Array(A.analyserR.fftSize);
@@ -638,7 +615,7 @@ document.head.appendChild(style);
   }
 
   // -------------------------------------------------------
-  // Meter DOM builder (identical structure to audiometer)
+  // Meter DOM builder
   // -------------------------------------------------------
   function createLevelMeter(id, label, unitText, container, scaleValues) {
     const levelMeter = document.createElement('div');
@@ -658,7 +635,7 @@ document.head.appendChild(style);
       meterBar.appendChild(segment);
     }
 
-    if (id.includes('left') || id.includes('right') || id.includes('mp') || id.includes('hf')) {
+    if (id.includes('left') || id.includes('right') || id.includes('cci') || id.includes('aci')) {
       const marker = document.createElement('div');
       marker.className = 'peak-marker';
       meterBar.appendChild(marker);
@@ -670,7 +647,7 @@ document.head.appendChild(style);
 
     const unitElement = document.createElement('div');
     unitElement.classList.add('unit-label');
-    if (id.includes('hf')) unitElement.classList.add('hf-unit-label');
+    if (id.includes('aci')) unitElement.classList.add('hf-unit-label'); // Keep class for possible styling
     unitElement.innerText = unitText;
 
     const meterWrapper = document.createElement('div');
@@ -718,29 +695,28 @@ document.head.appendChild(style);
       HUB.instances.delete(instanceKey);
     }
 
-    // Per-instance peak state (not shared with HUB)
     const PEAK_CONFIG = { smoothing: 0.85, holdMs: 5000 };
     const peaks = {
       left:  { value: 0, lastUpdate: Date.now() },
       right: { value: 0, lastUpdate: Date.now() },
-      hf:    { value: 0, lastUpdate: Date.now() },
-      mp:    { value: 0, lastUpdate: Date.now() }
+      aci:   { value: 0, lastUpdate: Date.now() },
+      cci:   { value: 0, lastUpdate: Date.now() }
     };
 
     const state = {
       hfUnit: (HUB.unit || 'dbf').toLowerCase(),
       highestSignal: -Infinity,
       levels: {
-        hf: 0, hfValue: 0, hfBase: 0,
+        hf: 0, hfValue: 0, hfBase: 0, // Still kept correctly for text values
         left: 0, right: 0,
-        mp: -1,
-        multipath: null
+        mp: -1, multipath: null,
+        aci: -1, cci: -1
       },
       ids: {
         left:  'left-meter',
         right: 'right-meter',
-        hf:    'hf-meter',
-        mp:    'mp-meter'
+        aci:   'aci-meter', // Unique ID instead of clashing with hf-meter!
+        cci:   'cci-meter'  // Unique ID instead of clashing with mp-meter!
       }
     };
 
@@ -769,8 +745,8 @@ document.head.appendChild(style);
       const idPrefix = useLegacyIds ? '' : `${instanceKey}-`;
       state.ids.left  = idPrefix + 'left-meter';
       state.ids.right = idPrefix + 'right-meter';
-      state.ids.hf    = idPrefix + 'hf-meter';
-      state.ids.mp    = idPrefix + 'mp-meter';
+      state.ids.aci   = idPrefix + 'aci-meter';
+      state.ids.cci   = idPrefix + 'cci-meter';
 
       root.innerHTML = '';
 
@@ -783,22 +759,22 @@ document.head.appendChild(style);
       createLevelMeter(state.ids.right, 'RIGHT', 'dB', stereoGroup, []);
       root.appendChild(stereoGroup);
 
-      // HF Meter
-      const hfScale = buildHFScale(state.hfUnit);
-      createLevelMeter(state.ids.hf, 'RF', formatUnit(state.hfUnit), root, hfScale);
+      // ACI Meter (Unique ID used here to avoid conflicts)
+      const aciScale = ['100', '90', '80', '70', '60', '50', '40', '30', '20', '10', '0'];
+      createLevelMeter(state.ids.aci, 'ACI', '%', root, aciScale);
 
-      const hfLevelMeter = root.querySelector(`#${cssEscape(state.ids.hf)}`)?.closest('.signal-level-meter');
-      if (hfLevelMeter) {
-        hfLevelMeter.style.transform  = 'translateX(-10px)';
-        hfLevelMeter.style.marginLeft = '15px';
+      const aciLevelMeter = root.querySelector(`#${cssEscape(state.ids.aci)}`)?.closest('.signal-level-meter');
+      if (aciLevelMeter) {
+        aciLevelMeter.style.transform  = 'translateX(-10px)';
+        aciLevelMeter.style.marginLeft = '15px';
       }
 
-      // MP Meter
-      const mpScale = ['99', '90', '80', '70', '60', '50', '40', '30', '20', '10', '0'];
-      createLevelMeter(state.ids.mp, 'MP', '%', root, mpScale);
+      // CCI Meter (Unique ID used here to avoid conflicts)
+      const cciScale = ['100', '90', '80', '70', '60', '50', '40', '30', '20', '10', '0'];
+      createLevelMeter(state.ids.cci, 'CCI', '%', root, cciScale);
 
-      const mpLevelMeter = root.querySelector(`#${cssEscape(state.ids.mp)}`)?.closest('.signal-level-meter');
-      if (mpLevelMeter) mpLevelMeter.style.transform = 'translateX(-5px)';
+      const cciLevelMeter = root.querySelector(`#${cssEscape(state.ids.cci)}`)?.closest('.signal-level-meter');
+      if (cciLevelMeter) cciLevelMeter.style.transform = 'translateX(-5px)';
 
       // Signal Panel
       const signalPanel = document.createElement('div');
@@ -885,15 +861,6 @@ document.head.appendChild(style);
         HUB.audio.subscribers.delete(instance);
       },
 
-      // -------------------------------------------------------
-      // _renderLoop: drives peak decay at 60fps independent of
-      // whether audio is playing.
-      // 
-      // FIX: driveDecay now calls the full updateMeter() instead
-      // of setPeakSegment() alone. This guarantees the bar is
-      // always repainted before the peak flag is placed, so a
-      // peak segment can never "float" above an inactive bar area.
-      // -------------------------------------------------------
       _renderLoop() {
         if (this._destroyed) return;
         if (!dom.meterExists || textOnly) {
@@ -901,16 +868,9 @@ document.head.appendChild(style);
           return;
         }
 
-        // HF and MP are not driven by _onAudio, so they need a
-        // full repaint here to get smooth peak decay.
-        updateMeter(state.ids.hf, state.levels.hf,  root, peaks, PEAK_CONFIG);
-        updateMeter(state.ids.mp, state.levels.mp,  root, peaks, PEAK_CONFIG);
+        updateMeter(state.ids.aci, state.levels.aci, root, peaks, PEAK_CONFIG);
+        updateMeter(state.ids.cci, state.levels.cci, root, peaks, PEAK_CONFIG);
 
-        // Stereo L/R: _onAudio already does the full repaint at
-        // audio rate (~60 fps). Here we ONLY drive the peak decay
-        // math — we do NOT touch the DOM for these meters to avoid
-        // racing with _onAudio. Peak flag placement happens inside
-        // the _onAudio → updateMeter call automatically.
         const decayOnly = (peakKey) => {
           if (peaks[peakKey] === undefined) return;
           updatePeakValue(
@@ -918,7 +878,6 @@ document.head.appendChild(style);
             state.levels[peakKey] < 0 ? -1 : state.levels[peakKey],
             PEAK_CONFIG.holdMs, PEAK_CONFIG.smoothing, 2.0
           );
-          // DO NOT call setPeakSegment here — _onAudio owns the stereo DOM
         };
 
         decayOnly('left');
@@ -935,20 +894,6 @@ document.head.appendChild(style);
         if (dom.unitEls && dom.unitEls.length) {
           dom.unitEls.forEach(span => { span.textContent = state.hfUnit; });
         }
-
-        if (dom.meterExists) {
-          const meterEl   = root.querySelector(`#${cssEscape(state.ids.hf)}`) || root.querySelector('#hf-meter');
-          const levelMeter = meterEl?.closest('.signal-level-meter');
-          const scaleEl    = levelMeter?.querySelector('.signal-meter-scale');
-          if (scaleEl) {
-            const newScale = buildHFScale(state.hfUnit);
-            const ticks = scaleEl.querySelectorAll('div');
-            newScale.forEach((txt, idx) => { if (ticks[idx]) ticks[idx].innerText = txt; });
-          }
-          const hfUnitLabel = root.querySelector('.hf-unit-label');
-          if (hfUnitLabel) hfUnitLabel.textContent = formatUnit(state.hfUnit);
-        }
-
         if (HUB.latestSigBase !== null) instance._onSig(HUB.latestSigBase);
       },
 
@@ -962,6 +907,11 @@ document.head.appendChild(style);
 
         HUB.sharedLevels.hfBase  = correctedBase;
         HUB.sharedLevels.hfValue = displayHF;
+        
+        // Ensure proper RF signal tracking continues, so text sync works
+        const percent         = hfPercentFromBase(correctedBase);
+        state.levels.hf       = percent;
+        HUB.sharedLevels.hf   = percent;
 
         if (displayHF > state.highestSignal) {
           state.highestSignal = displayHF;
@@ -973,13 +923,6 @@ document.head.appendChild(style);
           dom.elMain.textContent = parts[0];
           if (dom.elDec && parts[1]) dom.elDec.textContent = '.' + parts[1];
         }
-
-        const percent         = hfPercentFromBase(correctedBase);
-        state.levels.hf       = percent;
-        HUB.sharedLevels.hf   = percent;
-
-        // Paint HF meter immediately on each new signal value
-        updateMeter(state.ids.hf, percent, root, peaks, PEAK_CONFIG);
       },
 
       _onMultipath(val) {
@@ -1000,25 +943,27 @@ document.head.appendChild(style);
             dom.elMultipathValue.textContent = Number.isNaN(val) ? '--%' : val.toFixed(0) + '%';
           }
         }
+      },
 
+      _onAciCci(aci, cci) {
         if (dom.meterExists && !textOnly) {
-          const safeVal = (val !== null && !Number.isNaN(val)) ? val : -1;
-          state.levels.mp      = safeVal;
-          HUB.sharedLevels.mp  = safeVal;
-          // Paint MP meter immediately
-          updateMeter(state.ids.mp, safeVal, root, peaks, PEAK_CONFIG);
+          const safeAci = (aci !== null && !Number.isNaN(aci)) ? aci : -1;
+          const safeCci = (cci !== null && !Number.isNaN(cci)) ? cci : -1;
+          
+          state.levels.aci = safeAci;
+          state.levels.cci = safeCci;
+          HUB.sharedLevels.aci = safeAci;
+          HUB.sharedLevels.cci = safeCci;
+          
+          updateMeter(state.ids.aci, safeAci, root, peaks, PEAK_CONFIG);
+          updateMeter(state.ids.cci, safeCci, root, peaks, PEAK_CONFIG);
         }
       },
 
-      // -------------------------------------------------------
-      // _onAudio: called by the audio RAF loop — paints VU bars
-      // directly, matching exactly how audiometer.js works.
-      // -------------------------------------------------------
       _onAudio(levelL, levelR) {
         state.levels.left  = levelL;
         state.levels.right = levelR;
 
-        // Paint stereo VU bars immediately (same call path as audiometer)
         updateMeter(state.ids.left,  levelL, root, peaks, PEAK_CONFIG);
         updateMeter(state.ids.right, levelR, root, peaks, PEAK_CONFIG);
       }
@@ -1035,19 +980,16 @@ document.head.appendChild(style);
     if (opts.autoConnect !== false) HUB.ensureConnected();
     if (HUB.latestSigBase   !== null) instance._onSig(HUB.latestSigBase);
     if (HUB.latestMultipath !== null) instance._onMultipath(HUB.latestMultipath);
+    if (HUB.latestAci !== null && HUB.latestCci !== null) instance._onAciCci(HUB.latestAci, HUB.latestCci);
     if (HUB.sharedLevels.left || HUB.sharedLevels.right) {
       instance._onAudio(HUB.sharedLevels.left, HUB.sharedLevels.right);
     }
 
-    // Start peak-decay loop
     requestAnimationFrame(() => instance._renderLoop());
 
     return instance;
   }
 
-  // -------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------
   let defaultInstance = null;
 
   window.MetricsSignalMeter = {

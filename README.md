@@ -5,14 +5,13 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1209" height="838" alt="grafik" src="https://github.com/user-attachments/assets/156c16e0-ca31-49d0-a1b2-14716a6c8ae5" />
 
 
-## v2.6
+## v2.7
 
-- Added dBr power display to the Canvas Scope display (thanks to Bojcha for the code)
-- Added CRT monitor effect to the Scope Monitor
-- Removed ghost peak display from the VU meter
-- Fixed a bug when switching modules in the VU meter display with the Canvas Scope Monitor enabled
+- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3
+- Added a new graphical display of signal value, MP, ACI and CCI to the Canavas Signal Plot Display (Thanks to GOR for the template and inspiration)
+- The 5-band audiometer corrects the treatment of signals with different phases
 
-You can find the current manual for version 2.6 here:
+You can find the current manual for version 2.7 here:
 https://highpoint.fmdx.org/manuals/MetricsMonitor-Documentation.html
 
 ## Important note for this version: 
@@ -172,6 +171,13 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.6
+
+- Added dBr power display to the Canvas Scope display (thanks to Bojcha for the code)
+- Added CRT monitor effect to the Scope Monitor
+- Removed ghost peak display from the VU meter
+- Fixed a bug when switching modules in the VU meter display with the Canvas Scope Monitor enabled
 
 ### v2.5a
 
