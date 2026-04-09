@@ -8,7 +8,7 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 ## v2.7
 
-- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3
+- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3. The calculation basis comes from https://github.com/R100DX/SignalGuard (Thanks to mateusz100)
 - Added a new graphical display of signal value, MP, ACI and CCI to the Canavas Signal Plot Display (Thanks to GOR for the template and inspiration)
 - The 5-band audiometer corrects the treatment of signals with different phases
 
