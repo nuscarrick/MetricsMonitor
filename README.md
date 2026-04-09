@@ -116,13 +116,13 @@ After making changes to the metricsmonitor.json script, a server restart is only
 
 
 ## Module Displays (Values ​​for MODULE_SEQUENCE)
-<img width="2000" height="284" alt="grafik" src="https://github.com/user-attachments/assets/f6620e3d-ca68-4891-aaf1-7781f84a6c25" />
-
+<img width="1588" height="225" alt="grafik" src="https://github.com/user-attachments/assets/3c0f23e7-454d-4ef6-844e-9d93960e1e85" />
 
 ## Canvas Displays (Values ​​for CANVAS_SEQUENCE)
 <img width="1637" height="304" alt="grafik" src="https://github.com/user-attachments/assets/71c88160-344c-4d65-be12-8a8dc74925d1" />
-<img width="1644" height="302" alt="grafik" src="https://github.com/user-attachments/assets/39a9c445-335e-4920-b9b5-9587a6653eb9" />
-<img width="1222" height="219" alt="grafik" src="https://github.com/user-attachments/assets/076dc1db-7101-4fc4-9912-59093ebc95f0" />
+<img width="1220" height="231" alt="grafik" src="https://github.com/user-attachments/assets/6404eff5-3acf-4c64-ae8f-7c3ce9175424" />
+<img width="1224" height="214" alt="grafik" src="https://github.com/user-attachments/assets/403f84d7-4046-40b0-b6db-e0746183c948" />
+
 
 ## MPX Equipment
 
