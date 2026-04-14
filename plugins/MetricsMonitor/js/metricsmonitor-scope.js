@@ -246,14 +246,14 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   // Mode label (bottom-left, non-clickable)
   const modeLabel = document.createElement("div");
   modeLabel.id = `mpx-mode-label-${instanceKey}`;
-  modeLabel.title = "Oscilloscope view";
+  modeLabel.title = t('plugin.metricsMonitor.oscilloscopeView');
   modeLabel.style.cssText = `
     position: absolute; bottom: 15px; left: 8px;
     color: rgba(255, 255, 255, 0.85);
     font-family: Arial, sans-serif; font-size: 12px;
     cursor: default; z-index: 50; user-select: none;
   `;
-  modeLabel.innerText = "Oscilloscope";
+  modeLabel.innerText = t('plugin.metricsMonitor.oscilloscope');
   block.appendChild(modeLabel);
 
   const ctx = canvas.getContext("2d");
@@ -371,14 +371,14 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     tooltipElement = document.createElement("div");
     tooltipElement.id = `mpx-scope-zoom-tooltip-${instanceKey}`;
     tooltipElement.innerHTML = `
-      <div style="margin-bottom: 5px; font-weight: bold;">Zoom Controls</div>
-      <div style="margin-bottom: 4px;">• Scroll wheel: Horizontal zoom</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Scroll wheel: Vertical zoom</div>
-      <div style="margin-bottom: 4px;">• Left-click + Drag: Pan view</div>
-      <div style="margin-bottom: 4px;">• Right-click: Reset zoom</div>
+      <div style="margin-bottom: 5px; font-weight: bold;">${t('plugin.metricsMonitor.zoomControls')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.scrollWheel')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlScrollWheel')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.leftClickDrag')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.rightClick')}</div>
       <div style="margin-top: 5px; border-top: 1px solid rgba(143, 234, 255, 0.2); padding-top: 5px;"></div>
-      <div style="margin-bottom: 4px;">• Ctrl + Arrows: Fine Adjust</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Space: Reset</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlArrows')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlSpace')}</div>
     `;
     tooltipElement.style.cssText = `
       position: absolute;
@@ -557,7 +557,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
       ctx.font = "italic 14px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("Waiting for Data...", canvas.clientWidth / 2, canvas.clientHeight / 2);
+      ctx.fillText(t('plugin.metricsMonitor.waitingForData'), canvas.clientWidth / 2, canvas.clientHeight / 2);
       ctx.restore();
     }
 

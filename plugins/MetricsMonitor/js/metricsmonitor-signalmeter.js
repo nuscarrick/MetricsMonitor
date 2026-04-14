@@ -779,8 +779,8 @@ document.head.appendChild(style);
       stereoGroup.classList.add('stereo-group');
 
       const stereoScale = ['+5', '0', '-5', '-10', '-15', '-20', '-26'];
-      createLevelMeter(state.ids.left,  'LEFT',  'dB', stereoGroup, stereoScale);
-      createLevelMeter(state.ids.right, 'RIGHT', 'dB', stereoGroup, []);
+      createLevelMeter(state.ids.left,  t('plugin.metricsMonitor.left'),  'dB', stereoGroup, stereoScale);
+      createLevelMeter(state.ids.right, t('plugin.metricsMonitor.right'), 'dB', stereoGroup, []);
       root.appendChild(stereoGroup);
 
       // HF Meter
@@ -807,7 +807,7 @@ document.head.appendChild(style);
       if (useLegacyIds) {
         signalPanel.innerHTML = `
           <div id="data-signal-values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
-            <h2 class="signal-heading" style="display: block !important;">SIGNAL</h2>
+            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.SIGNAL')}</h2>
             <div class="text-small text-gray highest-signal-container">
               <i class="fa-solid fa-arrow-up"></i>
               <span id="data-signal-highest"></span>
@@ -823,7 +823,7 @@ document.head.appendChild(style);
                style="display: none; position: relative; top: -2px; text-align: center; z-index: 10; transition: transform 0.3s ease; width: 100%;">
             <h2 class="signal-heading"
                 style="display: inline-block; font-size: 15px; text-transform: none; letter-spacing: normal; margin: 0; padding: 0; border: none; vertical-align: baseline; transition: color 0.3s;">
-              Multipath:
+              ${t('plugin.metricsMonitor.multipath')}:
             </h2>
             <span id="data-multipath-value"
                   style="color: #ffffff; font-weight: normal; vertical-align: baseline; margin-left: 3px; font-size: 15px; transition: color 0.3s;">
@@ -833,7 +833,7 @@ document.head.appendChild(style);
       } else {
         signalPanel.innerHTML = `
           <div data-mm-signal="values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
-            <h2 class="signal-heading" style="display: block !important;">SIGNAL</h2>
+            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.SIGNAL')}</h2>
             <div class="text-small text-gray highest-signal-container">
               <i class="fa-solid fa-arrow-up"></i>
               <span data-mm-signal="highest"></span>
@@ -849,7 +849,7 @@ document.head.appendChild(style);
                style="display: none; position: relative; top: -2px; text-align: center; z-index: 10; transition: transform 0.3s ease; width: 100%;">
             <h2 class="signal-heading"
                 style="display: inline-block; font-size: 15px; text-transform: none; letter-spacing: normal; margin: 0; padding: 0; border: none; vertical-align: baseline; transition: color 0.3s;">
-              Multipath:
+              ${t('plugin.metricsMonitor.multipath')}:
             </h2>
             <span data-mm-signal="multipath-value"
                   style="color: #ffffff; font-weight: normal; vertical-align: baseline; margin-left: 3px; font-size: 15px; transition: color 0.3s;">

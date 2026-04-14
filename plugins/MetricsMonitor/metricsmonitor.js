@@ -48,7 +48,7 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
   const plugin_version = "2.6";
-  const updateInfo = true;
+  const updateInfo = false;
 
   const plugin_name = "MetricsMonitor";
   const plugin_path = "https://raw.githubusercontent.com/Highpoint2000/MetricsMonitor/";
@@ -85,10 +85,10 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
       if (!CONFIG.EnableAnalyzerAdminMode) { isTuneAuthenticated = true; return; }
       const bodyText = document.body.textContent || document.body.innerText;
       const isAdminLoggedIn =
-          bodyText.includes("You are logged in as an administrator.") ||
-          bodyText.includes("You are logged in as an adminstrator.");
+          bodyText.includes(t('plugin.loggedInAsAdministrator')) ||
+          bodyText.includes(t('plugin.loggedInAsAdminstrator'));
       const canControlReceiver =
-          bodyText.includes("You are logged in and can control the receiver.");
+          bodyText.includes(t('plugin.loggedInCanControlReceiver'));
       isTuneAuthenticated = !!(isAdminLoggedIn || canControlReceiver);
   }
   checkAdminMode();
@@ -505,7 +505,7 @@ function syncTextWebSocketMode(isInitial) {
     if (allowModuleToggle) {
       const customTooltip = document.createElement("div");
       const activeKeys = ACTIVE_SEQUENCE.map((val, index) => index + 1).join(",");
-      customTooltip.textContent = "Click here or press a number " + activeKeys + " to change the display mode.";
+      customTooltip.textContent = t('plugin.metricsMonitor.clickHereOrPressNumber') + " " + activeKeys + " " + t('plugin.metricsMonitor.toChangeDisplayMode');
       customTooltip.style.cssText = `
         position: absolute;
         top: 50%;
@@ -587,7 +587,7 @@ function syncTextWebSocketMode(isInitial) {
           mmLog("log", `Update available: ${ver} -> ${remoteVer}`);
           if (!setupOnly || isSetupPath) {
             const settings = document.getElementById("plugin-settings");
-            if (settings) settings.innerHTML += `<br><a href="${urlUpdateLink}" target="_blank">[${pluginName}] Update: ${ver} -> ${remoteVer}</a>`;
+            if (settings) settings.innerHTML += `<br><a href="${urlUpdateLink}" target="_blank">[${pluginName}] ${t('common.update')}: ${ver} -> ${remoteVer}</a>`;
             const updateIcon =
               document.querySelector(".wrapper-outer #navigation .sidenav-content .fa-puzzle-piece") ||
               document.querySelector(".wrapper-outer .sidenav-content") ||
@@ -641,7 +641,7 @@ function syncTextWebSocketMode(isInitial) {
       const observer = new MutationObserver(() => {
         if (typeof addIconToPluginPanel === "function") {
           observer.disconnect();
-          try { addIconToPluginPanel(buttonId, "MPX/Signal", "solid", "wave-square", "MPX/Signal"); functionFound = true; }
+          try { addIconToPluginPanel(buttonId, t('plugin.mpxSignal'), "solid", "wave-square", t('plugin.mpxSignal')); functionFound = true; }
           catch (e) { mmLog("warn", "addIconToPluginPanel failed, using legacy button", e); }
         }
       });
@@ -661,7 +661,7 @@ function syncTextWebSocketMode(isInitial) {
     if (document.getElementById(buttonId)) return;
     if (document.querySelector(".dashboard-panel-plugin-list")) return;
 
-    const BUTTON_NAME = "MPX/SIGNAL";
+    const BUTTON_NAME = t('plugin.mpxSignal').toUpperCase();
     const aButtonText = $("<strong>", { class: "aspectrum-text", html: BUTTON_NAME });
     const aButton = $("<button>", { id: buttonId, class: "hide-phone bg-color-2" });
     aButton.css({ "border-radius": "0px", "width": "100px", "height": "22px", "position": "relative", "margin-top": "16px", "margin-left": "5px", "right": "0px" });
@@ -761,7 +761,7 @@ function syncTextWebSocketMode(isInitial) {
     if (logger.on) {
       mmLog("warn", "MPX/Signal toggle blocked: RDS Logger is active");
       if (typeof sendToast === "function") {
-        try { sendToast("warning", "MetricsMonitor", "Disable RDS Logger first (Log button) to use MPX/Signal.", false, false); } catch (_) {}
+        try { sendToast("warning", t('plugin.metricsMonitorPluginName'), t('plugin.metricsMonitor.disableRDSLoggerFirst'), false, false); } catch (_) {}
       }
       return;
     }
@@ -997,7 +997,7 @@ function syncTextWebSocketMode(isInitial) {
     const signalPanel = document.createElement("div");
     signalPanel.className = "panel-33 no-bg-phone signal-panel-layout";
     signalPanel.innerHTML = `
-        <h2 class="signal-heading">SIGNAL</h2>
+        <h2 class="signal-heading">${t('plugin.metricsMonitor.SIGNAL')}</h2>
         <div class="text-small text-gray highest-signal-container">
           <i class="fa-solid fa-arrow-up"></i>
           <span id="data-signal-highest"></span>
@@ -1267,7 +1267,7 @@ function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
 
     const dbrHeading = document.createElement("h2");
     dbrHeading.className = "signal-heading mm-dbr-heading";
-    dbrHeading.textContent = "POWER";
+    dbrHeading.textContent = t('plugin.metricsMonitor.power');
     dbrHeading.style.fontSize = "25px";
     dbrHeading.style.marginBottom = "10px";
     dbrHeading.style.marginTop = "-6px";

@@ -754,8 +754,8 @@ function initAudioMeter(containerOrId = "level-meter-container") {
     "-26 dB"
   ];
   
-  createLevelMeter("eq-left-meter", "LEFT", stereoGroup, stereoScale);
-  createLevelMeter("eq-right-meter", "RIGHT", stereoGroup, []);
+  createLevelMeter("eq-left-meter", t('plugin.metricsMonitor.left'), stereoGroup, stereoScale);
+  createLevelMeter("eq-right-meter", t('plugin.metricsMonitor.right'), stereoGroup, []);
   
   signalMetersGroup.appendChild(stereoGroup);
 
@@ -769,14 +769,14 @@ function initAudioMeter(containerOrId = "level-meter-container") {
 
   const eqTitle = document.createElement("div");
   eqTitle.id = "eqTitle";
-  eqTitle.innerText = "5-BAND AUDIOMETER";
+  eqTitle.innerText = t('plugin.metricsMonitor.5BANDAUDIOMETER');
   eqGroup.appendChild(eqTitle);
 
   const eqHintWrapper = document.createElement("div");
   eqHintWrapper.id = "eqHintWrapper";
   const eqHintText = document.createElement("div");
   eqHintText.id = "eqHintText";
-  eqHintText.innerText = "Click play to show";
+  eqHintText.innerText = t('plugin.metricsMonitor.clickPlayToShow');
   eqHintWrapper.style.top = "-5%";
   eqHintWrapper.style.left = "-10%";
   eqHintWrapper.appendChild(eqHintText);

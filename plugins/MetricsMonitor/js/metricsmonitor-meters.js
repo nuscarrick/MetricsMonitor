@@ -45,7 +45,8 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-
+
+
 const MeterTiltCalibration = -900;           // Auto-updated via config file
 
     // Debug flags
@@ -930,8 +931,8 @@ function setPeakSegment(meterEl, peakPercent, meterId) {
         const stereoGroup = document.createElement("div");
         stereoGroup.classList.add("stereo-group");
 
-        createLevelMeter("left-meter", "LEFT", stereoGroup, scales.left);
-        createLevelMeter("right-meter", "RIGHT", stereoGroup, scales.right);
+        createLevelMeter("left-meter", t('plugin.metricsMonitor.left'), stereoGroup, scales.left);
+        createLevelMeter("right-meter", t('plugin.metricsMonitor.right'), stereoGroup, scales.right);
 
         container.appendChild(stereoGroup);
 

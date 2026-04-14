@@ -45,7 +45,8 @@ const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is 
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
-
+
+
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
 // Default mode is Spectrum only (oscilloscope moved to metricsmonitor-scope.js).
@@ -217,7 +218,7 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   // --- MODE LABEL (Bottom Left, non-clickable) ---
   const modeLabel = document.createElement("div");
   modeLabel.id = `mpx-mode-label-${instanceKey}`;
-  modeLabel.title = "Spectrum view";
+  modeLabel.title = t('plugin.metricsMonitor.spectrumView');
   modeLabel.style.cssText = `
     position: absolute;
     bottom: 15px;
@@ -230,10 +231,10 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     user-select: none;
   `;
   modeLabel.innerText =
-    sampleRate === 48000 ? "FM Audio Spectrum"
-    : sampleRate === 96000 ? "FM Baseband Spectrum"
-    : sampleRate === 192000 ? "MPX Spectrum"
-    : "Spectrum Analyzer";
+    sampleRate === 48000 ? t('plugin.metricsMonitor.fmAudioSpectrum')
+    : sampleRate === 96000 ? t('plugin.metricsMonitor.fmBasebandSpectrum')
+    : sampleRate === 192000 ? t('plugin.metricsMonitor.mpxSpectrum')
+    : t('plugin.metricsMonitor.spectrumAnalyzer');
   block.appendChild(modeLabel);
 
   const ctx = canvas.getContext("2d");
@@ -432,14 +433,14 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
     tooltipElement = document.createElement("div");
     tooltipElement.id = `mpx-zoom-tooltip-${instanceKey}`;
     tooltipElement.innerHTML = `
-      <div style="margin-bottom: 5px; font-weight: bold;">Zoom Controls</div>
-      <div style="margin-bottom: 4px;">• Scroll wheel: Horizontal zoom</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Scroll wheel: Vertical zoom</div>
-      <div style="margin-bottom: 4px;">• Left-click + Drag: Pan view</div>
-      <div style="margin-bottom: 4px;">• Right-click: Reset zoom</div>
+      <div style="margin-bottom: 5px; font-weight: bold;">${t('plugin.metricsMonitor.zoomControls')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.scrollWheel')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlScrollWheel')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.leftClickDrag')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.rightClick')}</div>
       <div style="margin-top: 5px; border-top: 1px solid rgba(143, 234, 255, 0.2); padding-top: 5px;"></div>
-      <div style="margin-bottom: 4px;">• Ctrl + Arrows: Fine Adjust</div>
-      <div style="margin-bottom: 4px;">• Ctrl + Space: Reset</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlArrows')}</div>
+      <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.ctrlSpace')}</div>
     `;
     tooltipElement.style.cssText = `
       position: absolute;
@@ -809,7 +810,7 @@ function drawHoverCursor() {
         ctx.font = "italic 14px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("Waiting for Data...", logicalWidth / 2, logicalHeight / 2);
+        ctx.fillText(t('plugin.metricsMonitor.waitingForData'), logicalWidth / 2, logicalHeight / 2);
         ctx.restore();
     }
 

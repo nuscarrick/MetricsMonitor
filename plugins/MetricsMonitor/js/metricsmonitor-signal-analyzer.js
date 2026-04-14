@@ -640,7 +640,7 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
         type: 'line',
         data: {
           datasets: [{
-            label: 'Signal',
+            label: t('plugin.metricsMonitor.signal'),
             data: this.hub.data,
             parsing: { yAxisKey: 'y', xAxisKey: 'x' },
 
@@ -789,15 +789,15 @@ const MeterTiltCalibration = -900;    // Do not touch - this value is automatica
 
       const el = document.createElement("div");
       el.innerHTML = `
-        <div style="margin-bottom: 8px; font-weight: bold;">Signal Chart Zoom Controls</div>
-        <div style="margin-bottom: 4px;">• Scroll wheel  Horizontal zoom (time)</div>
-        <div style="margin-bottom: 4px;">• Ctrl + Scroll wheel  Vertical zoom (level)</div>
-        <div style="margin-bottom: 4px;">• Left-click + Drag  Pan vertically</div>
-        <div style="margin-bottom: 4px;">• Right-click  Reset zoom</div>
+        <div style="margin-bottom: 8px; font-weight: bold;">${t('plugin.metricsMonitor.analyzerZoomControls')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerScrollWheel')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerCtrlScrollWheel')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerLeftClickDrag')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerRightClick')}</div>
         <div style="margin-top: 5px; border-top: 1px solid rgba(143, 234, 255, 0.2); padding-top: 5px;"></div>
-        <div style="margin-bottom: 4px;">• Ctrl + ↑ / ↓  Vertical zoom in/out</div>
-        <div style="margin-bottom: 4px;">• Ctrl + ← / →  Horizontal zoom in/out</div>
-        <div style="margin-bottom: 4px;">• Ctrl + Space  Reset zoom</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerCtrlArrowsVertical')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerCtrlArrowsHorizontal')}</div>
+        <div style="margin-bottom: 4px;">• ${t('plugin.metricsMonitor.analyzerCtrlSpace')}</div>
       `;
       el.style.cssText = `
         position:absolute; background: linear-gradient(to bottom, rgba(0, 40, 70, 0.95), rgba(0, 25, 50, 0.95));
