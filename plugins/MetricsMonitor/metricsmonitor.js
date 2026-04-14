@@ -937,8 +937,8 @@ function syncTextWebSocketMode(isInitial) {
   }
  
 const CC_COLOR_SIGNAL = 'rgba(58, 123, 213, 0.9)';
-const CC_COLOR_ACI    = 'rgba(0, 255, 0, 0.85)';
-const CC_COLOR_CCI    = 'rgba(255, 255,0, 0.85)';
+const CC_COLOR_ACI    = 'rgba(0, 255, 0, 0.65)';
+const CC_COLOR_CCI    = 'rgba(255, 255,0, 0.65)';
 const CC_BG           = 'transparent';
 
 // 100% graph height = 30 dBµV = 40.875 dBf = -78.875 dBm
@@ -1016,7 +1016,7 @@ function drawChannelCondition(canvas, signalDbf, aciPct, aciRaw, cciPct, cciRaw,
     ctx.clip(); // Limit the drawing area to mpWidth
     
     // Draw red color using the same shape as the blue signal
-    drawShape(sigX0, sigX1, H - sigHeight, 'rgba(255, 0, 0, 0.85)', false, sigFlatW);
+    drawShape(sigX0, sigX1, H - sigHeight, 'rgba(255, 0, 0, 0.75)', false, sigFlatW);
     ctx.restore();
 
     // Fix label (MP) aligned to the left
@@ -1133,7 +1133,6 @@ function replaceMainCanvasIfRequired() {
     .cc-label-value {
       color: #fff;
       font-size: 13px;
-      font-weight: bold;
       display: block;
     }
 
