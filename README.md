@@ -5,12 +5,12 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 <img width="1201" height="837" alt="grafik" src="https://github.com/user-attachments/assets/733643c5-11f1-4bc4-8fba-da045c21f647" />
 
 
+## v2.8
 
-## v2.7
+- Added a new switchable waveform display for the oscilloscope mode 
+- Revised the waveform display for the spectrum analyzer
 
-- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3. The calculation basis comes from https://github.com/R100DX/SignalGuard (Thanks to mateusz100)
-- Added a new graphical display of signal value, MP, ACI and CCI to the Canavas Signal Plot Display (Thanks to GOR for the template and inspiration)
-- The 5-band audiometer corrects the treatment of signals with different phases
+Many thanks to Bojcha for the ideas and the code!
 
 You can find the current manual for version 2.7 here:
 https://highpoint.fmdx.org/manuals/MetricsMonitor-Documentation.html
@@ -172,6 +172,12 @@ If you have any questions, would like to report problems, or have suggestions fo
 
 <details>
 <summary>History</summary>
+
+### v2.7
+
+- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3. The calculation basis comes from https://github.com/R100DX/SignalGuard (Thanks to mateusz100)
+- Added a new graphical display of signal value, MP, ACI and CCI to the Canavas Signal Plot Display (Thanks to GOR for the template and inspiration)
+- The 5-band audiometer corrects the treatment of signals with different phases
 
 ### v2.6
 
