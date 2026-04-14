@@ -13,7 +13,7 @@ FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equ
 
 Many thanks to Bojcha for the ideas and the code!
 
-You can find the current manual for version 2.7 here:
+You can find the current manual here:
 https://highpoint.fmdx.org/manuals/MetricsMonitor-Documentation.html
 
 ## Important note for this version: 
