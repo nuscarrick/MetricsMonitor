@@ -1,11 +1,12 @@
 //////////////////////////////////////////////////////////////////
 //                                                              //
-//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.0)    //
+//  METRICSMONITOR SERVER SCRIPT FOR FM-DX-WEBSERVER  (V2.7)    //
 //                                                              //
-//  by Highpoint               last update: 14.01.2026          //
+//  by Highpoint                     last update: 09.04.2026    //
 //                                                              //
 //  Thanks for support by                                       //
-//  Jeroen Platenkamp, Bkram, Wtkyl, AmateurAudioDude         //
+//  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude         //
+//  GOR and Bojcha                                              //
 //                                                              //
 //  https://github.com/Highpoint2000/metricsmonitor             //
 //                                                              //
@@ -26,6 +27,8 @@ const { spawn, execSync } = require("child_process");
 const WebSocket = require("ws");
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
+const dgram = require("dgram"); // Required for UDP communication
 
 // Import core server utilities for logging and configuration
 // These paths assume the standard file structure of the FM-DX-Webserver
@@ -52,8 +55,11 @@ const defaultConfig = {
   // 1. Audio & MPX Hardware Settings
   sampleRate: 48000,            // The sample rate for capture (Hz)
   MPXmode: "off",               // Mode switch (off/auto/on)
+  MPXChannel: "auto",           // Channel selection (auto/left/right)
   MPXStereoDecoder: "off",      // Internal stereo decoder switch
   MPXInputCard: "",             // Input device name (if empty, uses config.json device)
+  MPXTiltCalibration: 0.0,      // Tilt Correction in microseconds (0 = off)
+  VisualDelayMs: 250,           // Delay for visual synchronization in ms
 
   // 2. Calibration Offsets (Meters)
   MeterInputCalibration: 0.0,
@@ -62,9 +68,9 @@ const defaultConfig = {
   MeterRDSCalibration: 0.0,
 
   // 3. Meter Scales 
-  MeterPilotScale: 200.0,       // Default factor for Pilot
+  MeterPilotScale: 400.0,       // Default factor for Pilot
   MeterMPXScale: 100.0,         // Default factor for MPX 
-  MeterRDSScale: 650.0,         // Default factor for RDS
+  MeterRDSScale: 750.0,         // Default factor for RDS
 
   // 4. FFT / Spectrum Settings
   fftSize: 512,                 // FFT Window size (resolution)
@@ -76,16 +82,19 @@ const defaultConfig = {
   SpectrumSendInterval: 30,     // WebSocket update rate (approx 30fps)
   "Spectrum-Y-Offset": -40,     // Y-Axis offset for the visual curve
   "Spectrum-Y-Dynamics": 2,     // Dynamic range scaling for the visual curve
+  ScopeInputCalibration: 0,     // Dynamic amplitude adjustment for the oscilloscope
 
   // 6. Meter Gains
   StereoBoost: 2,               // Multiplier for L/R stereo meters
   AudioMeterBoost: 1.0,         // Multiplier for 5-Band audiometer
 
   // 7. Layout & UI
-  MODULE_SEQUENCE: "1,2,0,3,4", // Order of UI modules
-  CANVAS_SEQUENCE: "2,4",       // Order of Canvas elements
-  LockVolumeSlider: true,       // Lock the main volume slider in UI
-  EnableSpectrumOnLoad: false,  // Start spectrum automatically
+  MODULE_SEQUENCE: "1,2,5,0,3,4", // Order of UI modules
+  CANVAS_SEQUENCE: "2,5,4",       // Order of Canvas elements
+  MultipathMode: 0,               // Set to 1 if using a TEF radio (TEF Radio smooth) or 0 if using a TEF module (Raw MP Data). Based on the assumption TEF radio MP peaks around 40%.
+  LockVolumeSlider: true,         // Lock the main volume slider in UI
+  EnableSpectrumOnLoad: false,    // Start spectrum automatically
+  EnableAnalyzerAdminMode: false, // Enable Admin/Debug features in Analyzer
 
   // 8. Colors & Peaks
   MeterColorSafe: "rgb(0, 255, 0)",     // RGB Array (Green)
@@ -154,7 +163,7 @@ function normalizePluginConfig(json) {
   }
 
   // 8. Migration: pilotCalibration -> MeterPilotCalibration
-  if (typeof json.pilotCalibration !== "undefined" && typeof json.MeterPilotCalibration === "undefined") {
+  if (typeof json.MeterPilotCalibration !== "undefined" && typeof json.MeterPilotCalibration === "undefined") {
     json.MeterPilotCalibration = json.pilotCalibration;
     delete json.pilotCalibration;
   }
@@ -193,8 +202,11 @@ function normalizePluginConfig(json) {
 
     sampleRate: typeof json.sampleRate !== "undefined" ? json.sampleRate : defaultConfig.sampleRate,
     MPXmode: typeof json.MPXmode !== "undefined" ? json.MPXmode : defaultConfig.MPXmode,
+    MPXChannel: typeof json.MPXChannel !== "undefined" ? json.MPXChannel : defaultConfig.MPXChannel,
     MPXStereoDecoder: typeof json.MPXStereoDecoder !== "undefined" ? json.MPXStereoDecoder : defaultConfig.MPXStereoDecoder,
     MPXInputCard: typeof json.MPXInputCard !== "undefined" ? json.MPXInputCard : defaultConfig.MPXInputCard,
+    MPXTiltCalibration: typeof json.MPXTiltCalibration !== "undefined" ? json.MPXTiltCalibration : defaultConfig.MPXTiltCalibration,
+    VisualDelayMs: typeof json.VisualDelayMs !== "undefined" ? json.VisualDelayMs : defaultConfig.VisualDelayMs,
 
     MeterInputCalibration: typeof json.MeterInputCalibration !== "undefined" ? json.MeterInputCalibration : defaultConfig.MeterInputCalibration,
     MeterPilotCalibration: typeof json.MeterPilotCalibration !== "undefined" ? json.MeterPilotCalibration : defaultConfig.MeterPilotCalibration,
@@ -213,14 +225,17 @@ function normalizePluginConfig(json) {
     SpectrumSendInterval: typeof json.SpectrumSendInterval !== "undefined" ? json.SpectrumSendInterval : defaultConfig.SpectrumSendInterval,
     "Spectrum-Y-Offset": typeof json["Spectrum-Y-Offset"] !== "undefined" ? json["Spectrum-Y-Offset"] : defaultConfig["Spectrum-Y-Offset"],
     "Spectrum-Y-Dynamics": typeof json["Spectrum-Y-Dynamics"] !== "undefined" ? json["Spectrum-Y-Dynamics"] : defaultConfig["Spectrum-Y-Dynamics"],
+    ScopeInputCalibration: typeof json.ScopeInputCalibration !== "undefined" ? json.ScopeInputCalibration : defaultConfig.ScopeInputCalibration,
     
     StereoBoost: typeof json.StereoBoost !== "undefined" ? json.StereoBoost : defaultConfig.StereoBoost,
     AudioMeterBoost: typeof json.AudioMeterBoost !== "undefined" ? json.AudioMeterBoost : defaultConfig.AudioMeterBoost,
     
     MODULE_SEQUENCE: typeof json.MODULE_SEQUENCE !== "undefined" ? json.MODULE_SEQUENCE : defaultConfig.MODULE_SEQUENCE,
     CANVAS_SEQUENCE: typeof json.CANVAS_SEQUENCE !== "undefined" ? json.CANVAS_SEQUENCE : defaultConfig.CANVAS_SEQUENCE,
+    MultipathMode: typeof json.MultipathMode !== "undefined" ? json.MultipathMode : defaultConfig.MultipathMode,
     LockVolumeSlider: typeof json.LockVolumeSlider !== "undefined" ? json.LockVolumeSlider : defaultConfig.LockVolumeSlider,
     EnableSpectrumOnLoad: typeof json.EnableSpectrumOnLoad !== "undefined" ? json.EnableSpectrumOnLoad : defaultConfig.EnableSpectrumOnLoad,
+    EnableAnalyzerAdminMode: typeof json.EnableAnalyzerAdminMode !== "undefined" ? json.EnableAnalyzerAdminMode : defaultConfig.EnableAnalyzerAdminMode,
     
     MeterColorSafe: typeof json.MeterColorSafe !== "undefined" ? json.MeterColorSafe : defaultConfig.MeterColorSafe,
     MeterColorWarning: typeof json.MeterColorWarning !== "undefined" ? json.MeterColorWarning : defaultConfig.MeterColorWarning,
@@ -287,7 +302,7 @@ function loadConfig(filePath) {
     } catch (err) {
       logError("[MPX CONFIG ERROR] Raw Content was:", fs.readFileSync(filePath, "utf8")); // Shows the content causing the error
       logWarn(
-        "[MPX] metricsmonitor.json invalid ? rewriting with defaults:",
+        "[MPX] metricsmonitor.json invalid - rewriting with defaults:",
         err.message
       );
       // Backup defaults
@@ -302,7 +317,7 @@ function loadConfig(filePath) {
 
   // File does not exist, create it
   logWarn(
-    "[MPX] metricsmonitor.json not found ? creating new file with defaults."
+    "[MPX] metricsmonitor.json not found - creating new file with defaults."
   );
   fs.writeFileSync(filePath, JSON.stringify(defaultConfig, null, 2), "utf8");
   return defaultConfig;
@@ -334,15 +349,22 @@ let METER_INPUT_CALIBRATION_DB;
 let METER_GAIN_FACTOR;
 let SPECTRUM_INPUT_CALIBRATION_DB;
 let SPECTRUM_GAIN_FACTOR;
+let SCOPE_INPUT_CALIBRATION_DB;
+let SCOPE_GAIN_FACTOR;
 
 // Visual settings
 let SPECTRUM_ATTACK_LEVEL;
 let SPECTRUM_DECAY_LEVEL;
 let MPX_MODE;
+let MPX_CHANNEL;
 let MPX_STEREO_DECODER;
 let MPX_INPUT_CARD;
+let MULTIPATH_MODE;
 let LOCK_VOLUME_SLIDER;
 let ENABLE_SPECTRUM_ON_LOAD;
+let ENABLE_ANALYZER_ADMIN_MODE;
+let MPX_TILT_CALIBRATION;
+let VISUAL_DELAY_MS; 
 
 // Calibrations
 let METER_PILOT_CALIBRATION;
@@ -383,6 +405,9 @@ function applyConfig(newConfig) {
     // Update all variables
     MODULE_SEQUENCE = configPlugin.MODULE_SEQUENCE;
     CANVAS_SEQUENCE = configPlugin.CANVAS_SEQUENCE;
+    MULTIPATH_MODE = Number(configPlugin.MultipathMode);
+    if (isNaN(MULTIPATH_MODE)) MULTIPATH_MODE = 1;
+
     ANALYZER_SAMPLE_RATE = Number(configPlugin.sampleRate) || 192000;
     CONFIG_SAMPLE_RATE = ANALYZER_SAMPLE_RATE;
     STEREO_BOOST = Number(configPlugin.StereoBoost) || 1.0;
@@ -391,33 +416,40 @@ function applyConfig(newConfig) {
     SPECTRUM_SEND_INTERVAL = Number(configPlugin.SpectrumSendInterval) || 30;
     
     METER_INPUT_CALIBRATION_DB = Number(configPlugin.MeterInputCalibration) || 0;
-    METER_GAIN_FACTOR = Math.pow(10, METER_INPUT_CALIBRATION_DB / 20.0);
-    
+    METER_GAIN_FACTOR = Math.pow(10, METER_INPUT_CALIBRATION_DB / 20.0);  
+    MPX_TILT_CALIBRATION = Number(configPlugin.MPXTiltCalibration) || 0.0;
+    VISUAL_DELAY_MS = Number(configPlugin.VisualDelayMs);
+    if (isNaN(VISUAL_DELAY_MS) || VISUAL_DELAY_MS < 0) VISUAL_DELAY_MS = 250;
+
     SPECTRUM_INPUT_CALIBRATION_DB = Number(configPlugin.SpectrumInputCalibration) || 0;
     SPECTRUM_GAIN_FACTOR = Math.pow(10, SPECTRUM_INPUT_CALIBRATION_DB / 20.0);
-    
     SPECTRUM_ATTACK_LEVEL = Number(configPlugin.SpectrumAttackLevel) || 3;
     SPECTRUM_DECAY_LEVEL = Number(configPlugin.SpectrumDecayLevel) || 15;
     
     MPX_MODE = String(configPlugin.MPXmode || "auto").toLowerCase();
+    MPX_CHANNEL = String(configPlugin.MPXChannel || "auto").toLowerCase();
     MPX_STEREO_DECODER = String(configPlugin.MPXStereoDecoder || "off").toLowerCase();
     
     MPX_INPUT_CARD = String(configPlugin.MPXInputCard || "").replace(/^["'](.*)["']$/, "$1").trim();
     
     LOCK_VOLUME_SLIDER = configPlugin.LockVolumeSlider === true;
     ENABLE_SPECTRUM_ON_LOAD = configPlugin.EnableSpectrumOnLoad === true;
+    ENABLE_ANALYZER_ADMIN_MODE = configPlugin.EnableAnalyzerAdminMode === true;
     
     METER_PILOT_CALIBRATION = Number(configPlugin.MeterPilotCalibration) || 0.0;
     METER_MPX_CALIBRATION = Number(configPlugin.MeterMPXCalibration) || 0.0;
     METER_RDS_CALIBRATION = Number(configPlugin.MeterRDSCalibration) || 0.0;
     
     // SCALES
-    METER_PILOT_SCALE = Number(configPlugin.MeterPilotScale) || 200.0;
+    METER_PILOT_SCALE = Number(configPlugin.MeterPilotScale) || 400.0;
     METER_MPX_SCALE = Number(configPlugin.MeterMPXScale) || 100.0; 
-    METER_RDS_SCALE = Number(configPlugin.MeterRDSScale) || 650.0;   
+    METER_RDS_SCALE = Number(configPlugin.MeterRDSScale) || 750.0;   
        
     SPECTRUM_Y_OFFSET = Number(configPlugin["Spectrum-Y-Offset"]) || -40;
     SPECTRUM_Y_DYNAMICS = Number(configPlugin["Spectrum-Y-Dynamics"]) || 2.0;
+
+    SCOPE_INPUT_CALIBRATION_DB = Number(configPlugin.ScopeInputCalibration) || 0;
+    SCOPE_GAIN_FACTOR = Math.pow(10, SCOPE_INPUT_CALIBRATION_DB / 20.0);
     
     METER_COLOR_SAFE = JSON.stringify(configPlugin.MeterColorSafe || "rgb(0, 255, 0)");
     METER_COLOR_WARNING = JSON.stringify(configPlugin.MeterColorWarning || "rgb(255, 255, 0)");
@@ -430,7 +462,7 @@ function applyConfig(newConfig) {
     ENABLE_MPX = isModule2Active; 
     ENABLE_ANALYZER = ENABLE_MPX;
 
-    logInfo("[MPX Config] New configuration has been applied to the server.");
+    logInfo(`[MPX Config] New configuration applied. Gain: ${METER_INPUT_CALIBRATION_DB}dB | Tilt: ${MPX_TILT_CALIBRATION}us | Delay: ${VISUAL_DELAY_MS}ms | MPXChannel: ${MPX_CHANNEL} | MP Mode: ${MULTIPATH_MODE}`);
 }
 
 /**
@@ -517,30 +549,32 @@ function patchHelpersForLocalhostBypass() {
       return;
     }
 
-    // Locate the function
-    const fnSignature =
-      "function antispamProtection(message, clientIp, ws, userCommands, lastWarn, userCommandHistory, lengthCommands, endpointName) {";
-    const fnIndex = content.indexOf(fnSignature);
+    // Locate the function (Partial match to ignore added/removed arguments in new versions)
+    const fnIndex = content.indexOf("function antispamProtection(");
 
     if (fnIndex === -1) {
       logWarn(
-        "[MPX] antispamProtection() not found in helpers.js  skipping localhost patch."
+        "[MPX] antispamProtection() not found in helpers.js - skipping localhost patch."
       );
       return;
     }
 
-    // Locate start of function body
-    const commandLine = "const command = message.toString();";
-    const cmdIndex = content.indexOf(commandLine, fnIndex);
+    // Extract a small snippet right after the function declaration to search for the variable declaration
+    const searchSnippet = content.slice(fnIndex, fnIndex + 500);
+    
+    // Regex to match "const command = <anything>;" (Handles both the old and the new .replace(...) code)
+    const cmdRegex = /const\s+command\s*=\s*[^\n]+;/;
+    const match = searchSnippet.match(cmdRegex);
 
-    if (cmdIndex === -1) {
+    if (!match) {
       logWarn(
-        "[MPX] 'const command = message.toString();' not found in antispamProtection()  skipping localhost patch."
+        "[MPX] 'command' variable definition not found in antispamProtection() - skipping localhost patch."
       );
       return;
     }
 
-    const insertPos = cmdIndex + commandLine.length;
+    // Calculate the exact insertion position right after the matched "const command = ...;" line
+    const insertPos = fnIndex + match.index + match[0].length;
 
     const insertion = `
   ${LOCALHOST_PATCH_MARKER} allow internal server apps on localhost
@@ -601,12 +635,13 @@ function updateSettings() {
 
     function buildHeaderBlock() {
         // This block is injected at the top of client files
-        // NOTE: Sending renamed constants to the client to match new naming convention
         return (
           `const sampleRate = ${ANALYZER_SAMPLE_RATE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXmode = "${MPX_MODE}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXStereoDecoder = "${MPX_STEREO_DECODER}";    // Do not touch - this value is automatically updated via the config file\n` +
           `const MPXInputCard = "${MPX_INPUT_CARD}";    // Do not touch - this value is automatically updated via the config file\n` +
+          `const MPXTiltCalibration = ${MPX_TILT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const VisualDelayMs = ${VISUAL_DELAY_MS};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterInputCalibration = ${METER_INPUT_CALIBRATION_DB};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterPilotCalibration = ${METER_PILOT_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterMPXCalibration = ${METER_MPX_CALIBRATION};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -619,12 +654,15 @@ function updateSettings() {
           `const SpectrumSendInterval = ${SPECTRUM_SEND_INTERVAL};    // Do not touch - this value is automatically updated via the config file\n` +
           `const SpectrumYOffset = ${SPECTRUM_Y_OFFSET};    // Do not touch - this value is automatically updated via the config file\n` +
           `const SpectrumYDynamics = ${SPECTRUM_Y_DYNAMICS};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const ScopeInputCalibration = ${SCOPE_INPUT_CALIBRATION_DB};    // Do not touch - this value is automatically updated via the config file\n` +
           `const StereoBoost = ${STEREO_BOOST};    // Do not touch - this value is automatically updated via the config file\n` +
           `const AudioMeterBoost = ${AUDIO_METER_BOOST};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MODULE_SEQUENCE = ${MODULE_SEQUENCE_JS};    // Do not touch - this value is automatically updated via the config file\n` +
           `const CANVAS_SEQUENCE = ${CANVAS_SEQUENCE_JS};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const MultipathMode = ${MULTIPATH_MODE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const LockVolumeSlider = ${LOCK_VOLUME_SLIDER};    // Do not touch - this value is automatically updated via the config file\n` +
           `const EnableSpectrumOnLoad = ${ENABLE_SPECTRUM_ON_LOAD};    // Do not touch - this value is automatically updated via the config file\n` +
+          `const EnableAnalyzerAdminMode = ${ENABLE_ANALYZER_ADMIN_MODE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorSafe = ${METER_COLOR_SAFE};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorWarning = ${METER_COLOR_WARNING};    // Do not touch - this value is automatically updated via the config file\n` +
           `const MeterColorDanger = ${METER_COLOR_DANGER};    // Do not touch - this value is automatically updated via the config file\n` +
@@ -634,7 +672,6 @@ function updateSettings() {
     }
 
     function removeOldConstants(code) {
-        // Regex to remove existing constant definitions to prevent duplicates
         let out = code
         // Old names
         .replace(/^\s*const\s+minSendIntervalMs\s*=.*;[^\n]*\n?/gm, "")
@@ -658,9 +695,12 @@ function updateSettings() {
         .replace(/^\s*const\s+SpectrumSendInterval\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+SpectrumYOffset\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+SpectrumYDynamics\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+ScopeInputCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+StereoBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+AudioMeterBoost\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterInputCalibration\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MPXTiltCalibration\s*=.*;[^\n]*\n?/gm, "") 
+        .replace(/^\s*const\s+VisualDelayMs\s*=.*;[^\n]*\n?/gm, "") 
         .replace(/^\s*const\s+MeterPilotCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterMPXCalibration\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterRDSCalibration\s*=.*;[^\n]*\n?/gm, "")
@@ -671,6 +711,8 @@ function updateSettings() {
         // Other standard constants
         .replace(/^\s*const\s+MODULE_SEQUENCE\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+CANVAS_SEQUENCE\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MultipathMode\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+MULTIPATH_IS_TEF_RADIO\s*=.*;[^\n]*\n?/gm, "") // clear old occurrences
         .replace(/^\s*const\s+sampleRate\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+fftSize\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+SpectrumAverageLevel\s*=.*;[^\n]*\n?/gm, "")
@@ -682,6 +724,7 @@ function updateSettings() {
         .replace(/^\s*const\s+MPXInputCard\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+LockVolumeSlider\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+EnableSpectrumOnLoad\s*=.*;[^\n]*\n?/gm, "")
+        .replace(/^\s*const\s+EnableAnalyzerAdminMode\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorSafe\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorWarning\s*=.*;[^\n]*\n?/gm, "")
         .replace(/^\s*const\s+MeterColorDanger\s*=.*;[^\n]*\n?/gm, "")
@@ -821,7 +864,6 @@ function updateSettings() {
         return out;
     }
 
-    // BUG FIX: Define this helper function *before* it is used.
     function updateClientFile(filePath, label, modifyFn) {
         try {
             const data = fs.readFileSync(filePath, "utf8");
@@ -832,7 +874,6 @@ function updateSettings() {
             logError(`[MPX] Error updating ${label}:`, err);
         }
     }
-
 
     // Update specific files
     updateClientFile(MetricsMonitorClientFile, "metricsmonitor.js", (code) => {
@@ -891,7 +932,7 @@ function updateSettings() {
  */
 function copyAllClientFiles() {
   if (process.platform === "win32") {
-    logInfo("[MPX] Windows detected  skipping client file copy.");
+    logInfo("[MPX] Windows detected - skipping client file copy.");
     return;
   }
 
@@ -1101,7 +1142,7 @@ setupFileWatcher();
 
 if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   logInfo(
-    `[MPX] MODULE_SEQUENCE = ${MODULE_SEQUENCE} ? ` +
+    `[MPX] MODULE_SEQUENCE = ${MODULE_SEQUENCE} - ` +
     "MPX capture & server-side MPX processing are disabled."
   );
 } else {
@@ -1121,26 +1162,29 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     SERVER_PORT = 8080;
   }
 
-  logInfo(`[MPX] Using webserver port from config.json ? ${SERVER_PORT}`);
+  logInfo(`[MPX] Using webserver port from config.json - ${SERVER_PORT}`);
   logInfo(
-    `[MPX] sampleRate from metricsmonitor.json ? ${CONFIG_SAMPLE_RATE} Hz`
+    `[MPX] sampleRate from metricsmonitor.json - ${CONFIG_SAMPLE_RATE} Hz`
   );
-  logInfo(`[MPX] FFT_SIZE from metricsmonitor.json ? ${FFT_SIZE} points`);
-  logInfo(`[MPX] Analyzer enabled? ? ${ENABLE_ANALYZER}`);
+  logInfo(`[MPX] FFT_SIZE from metricsmonitor.json - ${FFT_SIZE} points`);
+  logInfo(`[MPX] Analyzer enabled? - ${ENABLE_ANALYZER}`);
   logInfo(
-    `[MPX] SpectrumSendInterval from metricsmonitor.json ? ${SPECTRUM_SEND_INTERVAL} ms`
+    `[MPX] SpectrumSendInterval from metricsmonitor.json - ${SPECTRUM_SEND_INTERVAL} ms`
   );
-  logInfo(`[MPX] MPXmode from metricsmonitor.json ? ${MPX_MODE}`);
+  logInfo(`[MPX] MPXmode from metricsmonitor.json - ${MPX_MODE}`);
+  logInfo(`[MPX] MPXChannel from metricsmonitor.json - ${MPX_CHANNEL}`);
   logInfo(
-    `[MPX] MPXStereoDecoder from metricsmonitor.json ? ${MPX_STEREO_DECODER}`
+    `[MPX] MPXStereoDecoder from metricsmonitor.json - ${MPX_STEREO_DECODER}`
   );
   
   // Separate Calibration Logs
-  logInfo(`[MPX] MeterInputCalibration (Meters) ? ${METER_INPUT_CALIBRATION_DB} dB (Factor: ${METER_GAIN_FACTOR.toFixed(3)})`);
-  logInfo(`[MPX] SpectrumInputCalibration (Spectrum) ? ${SPECTRUM_INPUT_CALIBRATION_DB} dB (Factor: ${SPECTRUM_GAIN_FACTOR.toFixed(3)})`);
+  logInfo(`[MPX] MeterInputCalibration (Meters) - ${METER_INPUT_CALIBRATION_DB} dB (Factor: ${METER_GAIN_FACTOR.toFixed(3)})`);
+  logInfo(`[MPX] MPXTiltCalibration (Input Tilt) - ${MPX_TILT_CALIBRATION.toFixed(1)} us`);
+  logInfo(`[MPX] SpectrumInputCalibration (Spectrum) - ${SPECTRUM_INPUT_CALIBRATION_DB} dB (Factor: ${SPECTRUM_GAIN_FACTOR.toFixed(3)})`);
+  logInfo(`[MPX] ScopeInputCalibration (Scope) - ${SCOPE_INPUT_CALIBRATION_DB} dB (Factor: ${SCOPE_GAIN_FACTOR.toFixed(3)})`);
 
   if (MPX_INPUT_CARD !== "") {
-    logInfo(`[MPX] MPXInputCard from metricsmonitor.json ? "${MPX_INPUT_CARD}"`);
+    logInfo(`[MPX] MPXInputCard from metricsmonitor.json - "${MPX_INPUT_CARD}"`);
   }
 
   // ====================================================================================
@@ -1175,7 +1219,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     binaryName = "MPXCapture";
   } else {
     logError(
-      `[MPX] Unsupported platform ${osPlatform}/${osArch}  MPXCapture will not be started.`
+      `[MPX] Unsupported platform ${osPlatform}/${osArch} - MPXCapture will not be started.`
     );
   }
 
@@ -1183,20 +1227,47 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
 
   if (!runtimeFolder || !binaryName) {
     logWarn(
-      "[MPX] No runtimeFolder/binaryName detected  MPXCapture disabled."
+      "[MPX] No runtimeFolder/binaryName detected - MPXCapture disabled."
     );
   } else {
     MPX_EXE_PATH = path.join(__dirname, "bin", runtimeFolder, binaryName);
     MPX_EXE_PATH = MPX_EXE_PATH.replace(/^['\"]+|['\"]+$/g, "");
+
+    // -----------------------------------------------------------------------
+    // NEW: Check and fix execution permissions for Linux/Mac
+    // -----------------------------------------------------------------------
+    if (osPlatform !== "win32" && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
+        try {
+            // Check if file is executable (X_OK)
+            fs.accessSync(MPX_EXE_PATH, fs.constants.X_OK);
+        } catch (e) {
+            logInfo(`[MPX] Binary lacks execution permission. Setting 755 for: ${path.basename(MPX_EXE_PATH)}`);
+            try {
+                // Apply rwxr-xr-x (755)
+                fs.chmodSync(MPX_EXE_PATH, 0o755);
+                logInfo("[MPX] Permissions updated successfully.");
+            } catch (chmodErr) {
+                logError(`[MPX] Failed to set permissions for binary: ${chmodErr.message}`);
+            }
+        }
+    }
+
     logInfo(
-      `[MPX] Using MPXCapture binary for ${osPlatform}/${osArch} ? ${runtimeFolder}/${binaryName}`
+      `[MPX] Using MPXCapture binary for ${osPlatform}/${osArch} - ${runtimeFolder}/${binaryName}`
     );
   }
 
-  const MAX_WS_BACKLOG_BYTES = 256 * 1024;
+  const MAX_WS_BACKLOG_BYTES = 512 * 1024;
+  
+  // -----------------------------------------------------------------------
+  // UDP Setup for Communication with C# binary
+  // (Required for UDP_CONTROL_PORT reference in startMPXCapture)
+  // -----------------------------------------------------------------------
+  const udpClient = dgram.createSocket("udp4");
+  const UDP_CONTROL_PORT = 60001; // Port on which C# process will listen
 
   logInfo(
-    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain)."
+    "[MPX] MPX server started (Fast & Smooth v2.1, Peak/Pilot/RDS Time Domain, Tilt Correction, Server Visual Sync)."
   );
 
   // ====================================================================================
@@ -1208,6 +1279,14 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   let reconnectTimer = null;
   let backpressureHits = 0;
   const MAX_BACKPRESSURE_HITS = 200;
+  
+  // Heartbeat tracking for Spectrum & Scope Calculation
+  let lastSpectrumHeartbeat = 0;
+  let spectrumIsActive = false;
+  let lastScopeHeartbeat = 0;
+  let scopeIsActive = false;
+  let lastScopeState = false;
+  
 
   function connectDataPluginsWs() {
     const url = `ws://127.0.0.1:${SERVER_PORT}/data_plugins`;
@@ -1231,7 +1310,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
     });
 
     dataPluginsWs.on("close", () => {
-      logInfo("[MPX] /data_plugins WebSocket closed  retrying in 5 seconds.");
+      logInfo("[MPX] /data_plugins WebSocket closed - retrying in 5 seconds.");
       dataPluginsWs = null;
 
       if (!reconnectTimer) {
@@ -1246,22 +1325,34 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
       logError("[MPX] /data_plugins WebSocket error:", err);
     });
 
-    dataPluginsWs.on("message", () => {});
+    // Listen for client messages (Heartbeats from Spectrum AND Scope)
+    // FIX: Do not use JSON.parse() here, as the webserver reflects our 30KB payload back!
+    // Parsing a 30KB string 30 times a second creates massive memory leaks (OOM).
+    dataPluginsWs.on("message", (raw) => {
+        try {
+            const str = raw.toString();
+            if (str.includes('"spectrum_heartbeat"')) {
+                lastSpectrumHeartbeat = Date.now();
+            } else if (str.includes('"scope_heartbeat"')) {
+                lastScopeHeartbeat = Date.now();
+            }
+        } catch(e) {}
+    });
   }
 
   connectDataPluginsWs();
 
   // ====================================================================================
-  //  INPUT HANDLERS
+  //  INPUT HANDLERS (Dual Mode Support)
   // ====================================================================================
 
   let currentPilotPeak = 0;
   let currentRdsPeak = 0;
   let currentMaxPeak = 0;
   let currentNoiseFloor = 0;
-  let latestMpxFrame = null;
-
-  const readline = require('readline');
+  
+  let latestMpxFrame = null;   // Spectrum (s)
+  let latestScopeFrame = null; // Oscilloscope (o)
 
   function setupJsonReader(childProcess) {
       if (!childProcess || !childProcess.stdout) return;
@@ -1270,6 +1361,7 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
           input: childProcess.stdout, 
           crlfDelay: Infinity 
       });
+      childProcess.rl = rl; // Keep reference to close later if needed
 
       rl.on('line', (line) => {
           try {
@@ -1282,8 +1374,14 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
               if (typeof data.r === 'number') currentRdsPeak = data.r;
               if (typeof data.m === 'number') currentMaxPeak = data.m;
               
-              if (Array.isArray(data.s) && data.s.length > 0) {
+              // Process Spectrum Data (s)
+              if (Array.isArray(data.s)) {
                   latestMpxFrame = data.s;
+              }
+              
+              // Process Oscilloscope Data (o)
+              if (Array.isArray(data.o)) {
+                  latestScopeFrame = data.o;
               }
 
           } catch (e) { }
@@ -1295,233 +1393,318 @@ if (!ENABLE_MPX && MPX_INPUT_CARD === ""){
   // ====================================================================================
   let rec = null;
   let targetDevice = "";
-  
-  if (MPX_MODE === "off" && MPX_INPUT_CARD === "") {
-      logInfo("[MPX] Mode is 'off' -> MPX Capture Disabled.");
-  } 
-  else {
-      // Determine Input Device
-      if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
-          targetDevice = MPX_INPUT_CARD;
-          logInfo(`[MPX] Using device from plugin config: "${targetDevice}"`);
-      } 
-      else {
-          // If no specific MPXInputCard is set, ALWAYS fallback to main config
-          if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice && mainConfig.audio.audioDevice !== "") {
-              targetDevice = mainConfig.audio.audioDevice;
-              logInfo(`[MPX] MPXInputCard empty -> Fallback to main config audioDevice: "${targetDevice}"`);
-          } else {
-              targetDevice = "Default";
-              logWarn("[MPX] MPXInputCard empty AND main config empty -> Using 'Default'.");
-          }
+
+  /* ============================
+     RECONNECT / RETRY STATE
+     ============================ */
+  let resetTimeout = null;
+  let retryTimeout = null;
+  let retryAttempts = 0;
+  const RECONNECT_MAX_RETRIES = 30;
+  const RECONNECT_RETRY_DELAY = 15;
+
+  function attemptReconnect() {
+      if (retryAttempts >= RECONNECT_MAX_RETRIES) {
+          logError("[MPX] Maximum retry attempts reached. MPXCapture will not restart.");
+          return;
       }
+
+      retryAttempts += 1;
+
+      logInfo(
+          `[MPX] Waiting for ${RECONNECT_RETRY_DELAY} seconds before attempting to reconnect...`
+      );
+
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (resetTimeout) clearTimeout(resetTimeout);
+
+      retryTimeout = setTimeout(() => {
+          startMPXCapture();
+
+          resetTimeout = setTimeout(() => {
+              retryAttempts = 0;
+          }, (RECONNECT_RETRY_DELAY * 1000) + (30 * 1000));
+      }, RECONNECT_RETRY_DELAY * 1000);
   }
 
-  // --- STARTUP ---
+  function startMPXCapture() {
 
-  if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "") && MPX_EXE_PATH && fs.existsSync(MPX_EXE_PATH)) {
+      logInfo(`[MPX] Attempt #${retryAttempts + 1} to start MPXCapture...`);
 
-    if (osPlatform !== "win32") {
-        try { fs.chmodSync(MPX_EXE_PATH, 0o755); } catch (e) {}
-    }
+      // Determine Device
+      if (MPX_INPUT_CARD && MPX_INPUT_CARD !== "") {
+          targetDevice = MPX_INPUT_CARD;
+      } else if (mainConfig && mainConfig.audio && mainConfig.audio.audioDevice) {
+          targetDevice = mainConfig.audio.audioDevice;
+      } else {
+          targetDevice = "Default";
+      }
 
-    logInfo(`[MPX] Starting MPXCapture`);
+      if (MPX_MODE !== "off" || (MPX_MODE === "off" && MPX_INPUT_CARD !== "")) {
+        
+        logInfo(`[MPX] Starting MPXCapture (Hybrid Mode)`);
 
-    /* =====================================================
-       WINDOWS: MPXCapture opens Audio itself
-       ===================================================== */
-    if (osPlatform === "win32") {
+        if (osPlatform === "win32") {
 
-        logInfo(
-            `[MPX] Direct audio mode (Windows) | Rate=${SAMPLE_RATE}, Dev="${targetDevice}", FFT=${FFT_SIZE}`
-        );
+            
+            const absConfigPath = path.resolve(configFilePath);
+            const safeDevice = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
 
-        const absConfigPath = path.resolve(configFilePath);
-        const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+            logInfo(`[MPX] Spawning Native C Binary (WASAPI Mode) | Dev="${safeDevice}"`);
 
-        logInfo(`[MPX] Spawning C# Binary with Config: "${absConfigPath}"`);
-
-        rec = spawn(
-            MPX_EXE_PATH,
-            [
-                String(SAMPLE_RATE),
-                deviceArg,
-                String(FFT_SIZE),
-                absConfigPath
-            ],
-            {
-
-                cwd: path.resolve(__dirname, "../../"), 
-                env: {
-                    ...process.env,
-                    PYTHONUNBUFFERED: "1"
+            rec = spawn(
+                MPX_EXE_PATH,
+                [
+                    String(SAMPLE_RATE),
+                    safeDevice,      // Passed to InitWASAPI
+                    String(FFT_SIZE),
+                    absConfigPath,
+                    String(UDP_CONTROL_PORT)
+                ],
+                {
+                    cwd: path.resolve(__dirname, "../../"),
+                    env: process.env
                 }
-            }
-        );
+            );
 
-    /* =====================================================
-       LINUX: arecord -> stdin -> MPXCapture
-       ===================================================== */
-    } else {
-        const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
-        const deviceArg = (targetDevice && targetDevice.length > 0) ? targetDevice : "Default";
+        /* =====================================================
+           LINUX: Pipe via Arecord -> Stdin
+           ===================================================== */
+        } else {
 
-        logInfo(
-        `[MPX] arecord -> MPXCapture | Rate=${SAMPLE_RATE}, Dev="${deviceArg}", Config="${configFilePath}"`
-        );
+          const escapedConfigPath = configFilePath.replace(/"/g, '\\"');
 
-        rec = spawn("bash", ["-c", `
-    arecord -F 25000 -D "${deviceArg}" \
-    -c2 -r${SAMPLE_RATE} -f FLOAT_LE \
-    -t raw -q \
-    | "${MPX_EXE_PATH}" ${SAMPLE_RATE} "Default" ${FFT_SIZE} "${escapedConfigPath}"
-    `], {
-        stdio: ["ignore", "pipe", "pipe"]
+          let safeDevice =
+            (targetDevice && String(targetDevice).trim().length > 0 && String(targetDevice).trim() !== "Default")
+              ? String(targetDevice).trim()
+              : "hw:3,0";
+
+          // Reduced ALSA buffers to prevent overflowing the Linux 64KB pipes
+          const AREC_BUFFER_SIZE = 16384;
+          const AREC_PERIOD_SIZE = 2048;
+          const USE_MMAP = false;
+
+          logInfo(
+            `[MPX] Spawning Linux Binary (Pipe Mode) | Dev="${safeDevice}" | fmt=S32_LE SR=${SAMPLE_RATE} FFT=${FFT_SIZE} ` +
+            `B=${AREC_BUFFER_SIZE} P=${AREC_PERIOD_SIZE} mmap=${USE_MMAP ? "on" : "off"}`
+          );
+
+          rec = spawn("bash", ["-c", `
+            arecord -D "${safeDevice}" \
+              -c2 -r ${SAMPLE_RATE} -f S32_LE \
+              -t raw -q \
+              ${USE_MMAP ? "--mmap" : ""} \
+              --buffer-size ${AREC_BUFFER_SIZE} --period-size ${AREC_PERIOD_SIZE} \
+            | "${MPX_EXE_PATH}" \
+              ${SAMPLE_RATE} "s32" ${FFT_SIZE} "${escapedConfigPath}" ${UDP_CONTROL_PORT}
+          `], {
+            stdio: ["ignore", "pipe", "pipe"],
+            env: { ...process.env, ALSA_CARD: "sndrpihifiberry" }
+          });
+
+        }
+
+        /* =====================================================
+           STDERR & STDOUT Handling
+           ===================================================== */
+        rec.stderr.on("data", (d) => {
+            const msg = d.toString().trim();
+            if (msg.length) logInfo("[MPXCapture]", msg);
+        });
+
+        setupJsonReader(rec);
+
+        rec.on("close", (code) => {
+            logInfo("[MPX] MPXCapture exited with code:", code);
+            if (rec && rec.rl) rec.rl.close(); // Clean up readline memory
+            attemptReconnect();
         });
     }
+  }
 
-    /* =====================================================
-       STDERR -> Log
-       ===================================================== */
-    rec.stderr.on("data", (d) => {
-        const msg = d.toString().trim();
-        if (msg.length) logInfo("[MPXCapture]", msg);
-    });
+  // Initial start
+  startMPXCapture();
 
-    /* =====================================================
-       JSON Reader (stdout)
-       ===================================================== */
-    setupJsonReader(rec);
+  // ====================================================================================
+  //  Spectrum Activity Watchdog (Optimized CPU) - UDP VERSION
+  // ====================================================================================
+  setInterval(() => {
+     const now = Date.now();
+     
+     // Spectrum: Active if heartbeat received within last 4 seconds
+     const isSpectrumActive = (now - lastSpectrumHeartbeat < 4000);
+     
+     // Scope: Active if heartbeat received within last 4 seconds
+     const isScopeActive = (now - lastScopeHeartbeat < 4000);
 
-    rec.on("close", (code) => {
-        logInfo("[MPX] MPXCapture exited with code:", code);
-    });
-}
+     // Sync variables
+     spectrumIsActive = isSpectrumActive;
+     scopeIsActive = isScopeActive;
 
-// ====================================================================================
-//  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling)
-// ====================================================================================
+     // Force send commands every second to ensure C process is in sync (e.g. after restart)
+     const specCmd = spectrumIsActive ? "SPECTRUM=1" : "SPECTRUM=0";
+     udpClient.send(Buffer.from(specCmd), UDP_CONTROL_PORT, '127.0.0.1', () => {});
 
-if (typeof global.mpxPeakState === 'undefined') {
-  global.mpxPeakState = 0;
-  global.pilotFastAvg = 0;
-  global.rdsStableValue = 0;
-  global.mpxDisplayPeak = 0;
-  global.logThrottle = 0;
-}
+     const scopeCmd = isScopeActive ? "SCOPE=1" : "SCOPE=0";
+     udpClient.send(Buffer.from(scopeCmd), UDP_CONTROL_PORT, '127.0.0.1', () => {});
+     
+  }, 1000);
 
-setInterval(() => {
-    // 1. Check WebSocket connection
-    if (!dataPluginsWs || dataPluginsWs.readyState !== WebSocket.OPEN) return;
-    
-    // 2. Check Backpressure
-    if (dataPluginsWs.bufferedAmount > MAX_WS_BACKLOG_BYTES) {
-        if (++backpressureHits >= MAX_BACKPRESSURE_HITS) {
-            try { dataPluginsWs.terminate(); } catch {}
-            dataPluginsWs = null;
-        }
-        return;
-    }
-    backpressureHits = 0;
+  // ====================================================================================
+  //  MAIN BROADCAST LOOP (V2.5 - Dynamic Scaling + Visual Delay Buffer)
+  // ====================================================================================
 
-    // -----------------------------------------------------------------------
-    // PREPARE DATA
-    // -----------------------------------------------------------------------
-    // We trust that the C-Script (MPXCapture) has already applied the SCALING
-    // based on the config file. We receive values in kHz.
-    
-    const valP = currentPilotPeak; // Already scaled in kHz (from C)
-    const valR = currentRdsPeak;   // Already scaled in kHz (from C)
-    const valM = currentMaxPeak;   // Already scaled in kHz (from C)
-    const valN = (currentNoiseFloor || 1e-6);
+  if (typeof global.mpxPeakState === 'undefined') {
+    global.mpxPeakState = 0;
+    global.pilotFastAvg = 0;
+    global.rdsStableValue = 0;
+    global.mpxDisplayPeak = 0;
+    global.logThrottle = 0;
+  }
 
-    // -----------------------------------------------------------------------
-    // 1. PILOT
-    // -----------------------------------------------------------------------
-    // Smooth the input from C
-    global.pilotFastAvg = (global.pilotFastAvg * 0.9) + (valP * 0.1);
-    
-    // Apply Calibration Offset (Calibration is +/- kHz)
-    let out_pilot = global.pilotFastAvg;
-    if (out_pilot > 0.5) {
-        out_pilot += METER_PILOT_CALIBRATION;
-    }
-    if (out_pilot < 0) out_pilot = 0;
+  // Global queue to buffer WebSocket messages for audio-visual synchronization
+  const wsMessageQueue = [];
 
-    // -----------------------------------------------------------------------
-    // 2. RDS
-    // -----------------------------------------------------------------------
-    // Smooth the input from C
-    const smoothingFactor = 0.1;
-    global.rdsStableValue = (global.rdsStableValue * (1 - smoothingFactor)) + (valR * smoothingFactor);
-    
-    // Apply Calibration Offset
-    let out_rds = global.rdsStableValue;
-    if (out_rds > 0.1) {
-        out_rds += METER_RDS_CALIBRATION;
-    }
-    
-    // Limits
-    if (out_rds < 0) out_rds = 0;
+  setInterval(() => {
+      // 1. Check WebSocket connection
+      if (!dataPluginsWs || dataPluginsWs.readyState !== WebSocket.OPEN) {
+          // Clear the queue to prevent a massive backlog burst upon reconnection
+          wsMessageQueue.length = 0; 
+          return;
+      }
+      
+      // Prevent indefinite queue growth if shifting somehow fails or socket blocks forever
+      if (wsMessageQueue.length > 100) {
+          wsMessageQueue.shift(); // Drop the oldest frame to avoid memory leak
+      }
+      
+      // 2. Check Backpressure
+      if (dataPluginsWs.bufferedAmount > MAX_WS_BACKLOG_BYTES) {
+          if (++backpressureHits >= MAX_BACKPRESSURE_HITS) {
+              try { dataPluginsWs.terminate(); } catch {}
+              dataPluginsWs = null;
+          }
+          return;
+      }
+      backpressureHits = 0;
 
-    // -----------------------------------------------------------------------
-    // 3. MPX
-    // -----------------------------------------------------------------------
-    let rawMpxKHz = valM; 
+      // -----------------------------------------------------------------------
+      // PREPARE DATA
+      // -----------------------------------------------------------------------
+      // We trust that the C-Script (MPXCapture) has already applied the SCALING
+      // based on the config file. We receive values in kHz.
+      
+      const valP = currentPilotPeak; // Already scaled in kHz (from C)
+      const valR = currentRdsPeak;   // Already scaled in kHz (from C)
+      const valM = currentMaxPeak;   // Already scaled in kHz (from C)
+      const valN = (currentNoiseFloor || 1e-6);
 
-    // Apply Calibration Offset
-    // Only apply if signal is present (> 1.0 kHz) to avoid DC offset issues
-        rawMpxKHz += METER_MPX_CALIBRATION;
+      // -----------------------------------------------------------------------
+      // 1. PILOT
+      // -----------------------------------------------------------------------
+      // Smooth the input from C
+      global.pilotFastAvg = (global.pilotFastAvg * 0.9) + (valP * 0.1);
+      
+      // Apply Calibration Offset (Calibration is +/- kHz)
+      let out_pilot = global.pilotFastAvg;
+      if (out_pilot > 0.5) {
+          out_pilot += METER_PILOT_CALIBRATION;
+      }
+      if (out_pilot < 0) out_pilot = 0;
 
-    // Display Smoothing (Visual Only)
-    let target = rawMpxKHz;
-    const displayAttack = 0.3;
-    const displayDecay = 0.1;
+      // -----------------------------------------------------------------------
+      // 2. RDS
+      // -----------------------------------------------------------------------
+      // Smooth the input from C
+      const smoothingFactor = 0.1;
+      global.rdsStableValue = (global.rdsStableValue * (1 - smoothingFactor)) + (valR * smoothingFactor);
+      
+      // Apply Calibration Offset
+      let out_rds = global.rdsStableValue;
+      if (out_rds > 0.1) {
+          out_rds += METER_RDS_CALIBRATION;
+      }
+      
+      // Limits
+      if (out_rds < 0) out_rds = 0;
 
-    if (target > global.mpxDisplayPeak) {
-        global.mpxDisplayPeak = (global.mpxDisplayPeak * (1 - displayAttack)) + (target * displayAttack);
-    } else {
-        global.mpxDisplayPeak = (global.mpxDisplayPeak * (1 - displayDecay)) + (target * displayDecay);
-    }
-    
-    let out_mpx = global.mpxDisplayPeak;
-    
-    // Safety Clamps
-    if (out_mpx < 0) out_mpx = 0;
+      // -----------------------------------------------------------------------
+      // 3. MPX
+      // -----------------------------------------------------------------------
+      let rawMpxKHz = valM; 
 
-    // -----------------------------------------------------------------------
-    // LOGGING (Restored Format)
-    // -----------------------------------------------------------------------
-    if (ENABLE_EXTENDED_LOGGING) {
-        if (++global.logThrottle >= 33) {
-             global.logThrottle = 0;
-             // Logging Format: RAW (from C, Scaled) -> OUT (Smoothed + Calibrated)
-             logInfo(`[MPX] RAW [P:${valP.toFixed(4)} M:${valM.toFixed(4)} R:${valR.toFixed(4)}] -> OUT [Pilot:${out_pilot.toFixed(1)}k MPX:${out_mpx.toFixed(1)}k RDS:${out_rds.toFixed(1)}k]`);
-        }
-    }
+      // Apply Calibration Offset
+      // Only apply if signal is present (> 1.0 kHz) to avoid DC offset issues
+      if (rawMpxKHz > 1.0) {
+          rawMpxKHz += METER_MPX_CALIBRATION;
+      }
 
-    // -----------------------------------------------------------------------
-    // SEND TO CLIENT
-    // -----------------------------------------------------------------------
-    let finalSpectrum = [];
-    if (latestMpxFrame && latestMpxFrame.length > 0) {
-        finalSpectrum = latestMpxFrame;
-    }
+      // Display Smoothing (Visual Only)
+      let target = rawMpxKHz;
+      const displayAttack = 0.3;
+      const displayDecay = 0.1;
 
-    const payload = JSON.stringify({
-      type: "MPX", 
-      value: finalSpectrum,
-      peak: out_mpx, 
-      pilotKHz: out_pilot, 
-      rdsKHz: out_rds,
-      pilot: valP, 
-      rds: valR, 
-      noise: valN, 
-      snr: (valN > 1e-6) ? (valP / valN) : 0
-    });
+      if (target > global.mpxDisplayPeak) {
+          global.mpxDisplayPeak = (global.mpxDisplayPeak * (1 - displayAttack)) + (target * displayAttack);
+      } else {
+          global.mpxDisplayPeak = (global.mpxDisplayPeak * (1 - displayDecay)) + (target * displayDecay);
+      }
+      
+      let out_mpx = global.mpxDisplayPeak;
+      
+      // Safety Clamps
+      if (out_mpx < 0) out_mpx = 0;
 
-    dataPluginsWs.send(payload, () => {});
+      // -----------------------------------------------------------------------
+      // LOGGING (Restored Format)
+      // -----------------------------------------------------------------------
+      if (ENABLE_EXTENDED_LOGGING) {
+          if (++global.logThrottle >= 33) {
+               global.logThrottle = 0;
+               // Logging Format: RAW (from C, Scaled) -> OUT (Smoothed + Calibrated)
+               logInfo(`[MPX] RAW [P:${valP.toFixed(4)} M:${valM.toFixed(4)} R:${valR.toFixed(4)}] -> OUT [Pilot:${out_pilot.toFixed(1)}k MPX:${out_mpx.toFixed(1)}k RDS:${out_rds.toFixed(1)}k]`);
+          }
+      }
 
-}, SPECTRUM_SEND_INTERVAL);
+      // -----------------------------------------------------------------------
+      // BUILD PAYLOAD
+      // -----------------------------------------------------------------------
+      // Send both Spectrum (value) and Scope (scope) arrays
+      // Note: These might be empty arrays if spectrumIsActive is false
+      let finalSpectrum = (latestMpxFrame && latestMpxFrame.length > 0) ? latestMpxFrame : [];
+      let finalScope = (latestScopeFrame && latestScopeFrame.length > 0) ? latestScopeFrame : [];
+
+      const payload = JSON.stringify({
+        type: "MPX", 
+        value: finalSpectrum, // 's' data from C#
+        scope: finalScope,    // 'o' data from C#
+        peak: out_mpx, 
+        pilotKHz: out_pilot, 
+        rdsKHz: out_rds,
+        pilot: valP, 
+        rds: valR, 
+        noise: valN, 
+        snr: (valN > 1e-6) ? (valP / valN) : 0
+      });
+
+      // -----------------------------------------------------------------------
+      // SERVER-SIDE AUDIO-VISUAL SYNCHRONIZATION QUEUE
+      // -----------------------------------------------------------------------
+      const now = Date.now();
+      wsMessageQueue.push({ time: now, payload: payload });
+
+      // Process the queue and send out payloads that have surpassed the specified VisualDelayMs
+      while (wsMessageQueue.length > 0 && (now - wsMessageQueue[0].time) >= VISUAL_DELAY_MS) {
+          const item = wsMessageQueue.shift();
+          
+          try {
+              // Final safety check just in case the connection state changed during the loop
+              if (dataPluginsWs && dataPluginsWs.readyState === WebSocket.OPEN) {
+                  dataPluginsWs.send(item.payload, () => {});
+              }
+          } catch(e) {}
+      }
+
+  }, SPECTRUM_SEND_INTERVAL);
   
 }

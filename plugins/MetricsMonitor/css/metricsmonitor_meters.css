@@ -1,5 +1,3 @@
-/* --- LEVEL METER ----------------------------------------- */
-/* Base container for a single level meter (one vertical bar + label) */
 .level-meter {
   display: flex;
   flex-direction: column;
@@ -7,28 +5,25 @@
    margin-top: -4px; 
 }
 
-/* Top section: scale + bar side by side */
 .meter-top {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
 }
 
-/* Vertical dB scale next to the meter bar */
 .meter-scale {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 160px;
+  height: 165px;
   font-size: 9px;
   color: #aaa;
   margin-right: 4px;
   text-align: right;
-  position: relative; /* Hinzugefügt */
-  top: 15px;           /* Hinzugefügt: Passen Sie diesen Wert bei Bedarf an */
+  position: relative;
+  top: 10px;
 }
 
-/* Wrapper for one meter bar (keeps bar and label together) */
 .meter-wrapper {
   display: flex;
   flex-direction: column;
@@ -36,29 +31,26 @@
   width: 19px;
 }
 
-/* Main bar container (holds the colored segments) */
 .meter-bar {
   height: 160px;
   width: 19px;
   border-radius: 0;
   display: flex;
-  flex-direction: column-reverse; /* segments grow from bottom to top */
+  flex-direction: column-reverse;
   align-items: stretch;
   overflow: hidden;
   padding: 1px;
   position: relative;
 }
 
-/* Single bar segment (one step of the meter) */
 .segment {
   flex: 1;
   margin-bottom: 1px;
   border-radius: 0;
-  transition: background-color 0.1s; /* smooth color changes */
+  transition: background-color 0.1s;
   width: 100%;
 }
 
-/* Label under each meter bar (e.g. L, R, HF) */
 .level-meter .label {
   margin: 4px 0 0 0;
   font-size: 10px;
@@ -68,43 +60,47 @@
   margin-top: -1px; 
 }
 
-/* --- STEREO GROUP ---------------------------------------- */
-/* Group container for left/right stereo meters */
 .stereo-group {
   display: flex;
-  gap: 12px; /* space between L and R */
+  gap: 12px;
 }
 
-/* Fine-tune horizontal position of the left label */
 .stereo-group .label-left {
   transform: translateX(-4px);
 }
 
-/* Fine-tune horizontal position of the right label */
 .stereo-group .label-right {
   transform: translateX(-5px);
 }
 
-/* --- PEAK MARKER ----------------------------------------- */
-/* Style for the peak-hold marker (no shadow or border) */
+
 .peak-flag {
   box-shadow: none !important;
   border: 0 !important;
   outline: none !important;
 }
 
-/* --- LEVEL METER CONTAINER POSITIONING ------------------- */
-/* Overall container that holds all level meters */
 #level-meter-container {
   display: flex;
   justify-content: space-evenly;
   align-items: flex-end;
   width: 100%;
-  transform: translateX(-8px) translateY(10px); /* shift the whole group */
+  transform: translateX(-8px) translateY(10px);
 }
 
-/* Spezifische Verschiebung für das PILOT-Label */
 .level-meter:has(#stereo-pilot-meter) .label {
   transform: translateX(-3px);
 }
 
+.value-display {
+  text-align: center;
+  font-size: 10px !important;
+  line-height: 12px;
+  height: 12px;
+  color: white;
+  font-family: inherit;
+  margin-left: -1px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  opacity: 0.3; 
+}

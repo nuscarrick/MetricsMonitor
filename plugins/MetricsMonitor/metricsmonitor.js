@@ -1,49 +1,53 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.0)    //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.7)    //
 //                                                             //
-//  by Highpoint               last update: 14.01.2026         //
+//  by Highpoint               last update: 09.04.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
+//  GOR and Bojcha                                             //
 //                                                             //
 //  https://github.com/Highpoint2000/metricsmonitor            //
 //                                                             //
 /////////////////////////////////////////////////////////////////
 
 (() => {
-const sampleRate = 48000;    // Do not touch - this value is automatically updated via the config file
-const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
+const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
+const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 200;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 650;    // Do not touch - this value is automatically updated via the config file
-const fftSize = 512;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
+const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 2;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
-const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
+const MultipathMode = 0;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
+const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  // =========================================================
-  // Plugin version and update check configuration
-  // =========================================================
-  const plugin_version = "2.0";
+  const plugin_version = "2.7";
   const updateInfo = true;
 
   const plugin_name = "MetricsMonitor";
@@ -56,10 +60,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
   const pluginHomepageUrl = "https://github.com/Highpoint2000/MetricsMonitor/releases";
   const pluginUpdateUrl = plugin_path + plugin_JSfile;
 
-
-  // ---------------------------------------------------------
-  // Exposed configuration for consumption by sub-modules
-  // ---------------------------------------------------------
   const CONFIG = {
     MODULE_SEQUENCE: Array.isArray(MODULE_SEQUENCE) ? MODULE_SEQUENCE : [0],
     CANVAS_SEQUENCE: Array.isArray(CANVAS_SEQUENCE) ? CANVAS_SEQUENCE : [0],
@@ -77,38 +77,55 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     StereoBoost,
     AudioMeterBoost,
     LockVolumeSlider,
+    EnableAnalyzerAdminMode
   };
 
-  // ---------------------------------------------------------
-  // Dependency Flags
-  // Determine which modules are required based on the configuration sequences
-  // ---------------------------------------------------------
-  const NEED_CANVAS_2 = Array.isArray(CONFIG.CANVAS_SEQUENCE) && CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 2);
-  const NEED_CANVAS_4 = Array.isArray(CONFIG.CANVAS_SEQUENCE) && CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4);
-  const HAS_SUPPORTED_CANVAS = NEED_CANVAS_2 || NEED_CANVAS_4;
+  let isTuneAuthenticated = false;
+  function checkAdminMode() {
+      if (!CONFIG.EnableAnalyzerAdminMode) { isTuneAuthenticated = true; return; }
+      const bodyText = document.body.textContent || document.body.innerText;
+      const isAdminLoggedIn =
+          bodyText.includes("You are logged in as an administrator.") ||
+          bodyText.includes("You are logged in as an adminstrator.");
+      const canControlReceiver =
+          bodyText.includes("You are logged in and can control the receiver.");
+      isTuneAuthenticated = !!(isAdminLoggedIn || canControlReceiver);
+  }
+  checkAdminMode();
 
-  const NEED_MODULE_0 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 0);
-  const NEED_MODULE_1 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 1);
-  const NEED_MODULE_2 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 2);
-  const NEED_MODULE_3 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 3);
-  const NEED_MODULE_4 = Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.some(v => Number(v) === 4);
+  function filterSequence(seq) {
+      if (isTuneAuthenticated) return seq;
+      return seq.filter(id => Number(id) !== 2 && Number(id) !== 5);
+  }
 
-  // Map configuration to specific functional requirements
-  const NEED_AudioMeter       = NEED_MODULE_0;                    
-  const NEED_METERS          = NEED_MODULE_1 || NEED_CANVAS_2 || NEED_CANVAS_4;    
-  const NEED_ANALYZER        = NEED_MODULE_2 || NEED_CANVAS_2;    
-  const NEED_SIGNAL_METER    = NEED_MODULE_3 || NEED_MODULE_4 || NEED_CANVAS_4; 
-  const NEED_SIGNAL_ANALYZER = NEED_MODULE_4 || NEED_CANVAS_4;      
+  const FINAL_MODULE_SEQUENCE = filterSequence(CONFIG.MODULE_SEQUENCE);
+  const FINAL_CANVAS_SEQUENCE = filterSequence(CONFIG.CANVAS_SEQUENCE);
 
-  // ---------------------------------------------------------
-  // Expose Config globally to window object
-  // ---------------------------------------------------------
+  CONFIG.MODULE_SEQUENCE = FINAL_MODULE_SEQUENCE;
+  CONFIG.CANVAS_SEQUENCE = FINAL_CANVAS_SEQUENCE;
+
+  const NEED_CANVAS_2 = FINAL_CANVAS_SEQUENCE.some(v => Number(v) === 2);
+  const NEED_CANVAS_4 = FINAL_CANVAS_SEQUENCE.some(v => Number(v) === 4);
+  const NEED_CANVAS_5 = FINAL_CANVAS_SEQUENCE.some(v => Number(v) === 5);
+  const HAS_SUPPORTED_CANVAS = NEED_CANVAS_2 || NEED_CANVAS_4 || NEED_CANVAS_5;
+
+  const NEED_MODULE_0 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 0);
+  const NEED_MODULE_1 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 1);
+  const NEED_MODULE_2 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 2);
+  const NEED_MODULE_3 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 3);
+  const NEED_MODULE_4 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 4);
+  const NEED_MODULE_5 = FINAL_MODULE_SEQUENCE.some(v => Number(v) === 5);
+
+  const NEED_AudioMeter       = NEED_MODULE_0;
+  const NEED_METERS          = NEED_MODULE_1 || NEED_CANVAS_2 || NEED_CANVAS_4 || NEED_CANVAS_5;
+  const NEED_ANALYZER        = NEED_MODULE_2 || NEED_CANVAS_2;
+  const NEED_SIGNAL_METER    = NEED_MODULE_3 || NEED_MODULE_4 || NEED_CANVAS_4;
+  const NEED_SIGNAL_ANALYZER = NEED_MODULE_4 || NEED_CANVAS_4;
+  const NEED_SCOPE           = NEED_MODULE_5 || NEED_CANVAS_5;
+
   window.MetricsMonitor = window.MetricsMonitor || {};
   window.MetricsMonitor.Config = CONFIG;
 
-  // =========================================================
-  // Simple structured internal logger
-  // =========================================================
   window.MetricsMonitor._logBuffer = window.MetricsMonitor._logBuffer || [];
   const LOG_MAX_ENTRIES = 500;
   const LOG_PREFIX = "[MetricsMonitor]";
@@ -117,9 +134,7 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     const ts = new Date().toISOString();
     const entry = { ts, level, message, obj };
     window.MetricsMonitor._logBuffer.push(entry);
-    if (window.MetricsMonitor._logBuffer.length > LOG_MAX_ENTRIES) {
-      window.MetricsMonitor._logBuffer.shift();
-    }
+    if (window.MetricsMonitor._logBuffer.length > LOG_MAX_ENTRIES) window.MetricsMonitor._logBuffer.shift();
 
     const formatted = `${LOG_PREFIX} ${ts} - ${message}`;
     if (obj !== undefined) {
@@ -135,53 +150,30 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 
   window.MetricsMonitor.mmLog = mmLog;
   window.MetricsMonitor.getLogs = () => window.MetricsMonitor._logBuffer.slice();
-  window.MetricsMonitor.clearLogs = () => {
-    window.MetricsMonitor._logBuffer = [];
-    mmLog("log", "Log buffer cleared");
-  };
+  window.MetricsMonitor.clearLogs = () => { window.MetricsMonitor._logBuffer = []; mmLog("log", "Log buffer cleared"); };
 
-  mmLog("log", "Logger initialized");
+  mmLog("log", `Logger initialized. Admin Mode: ${CONFIG.EnableAnalyzerAdminMode ? "Enabled" : "Disabled"}. Access: ${isTuneAuthenticated ? "Granted" : "Restricted"}`);
 
-  // =========================================================
-  // Mode handling (Panel Modules)
-  // =========================================================
   let START_INDEX = 0;
-  const ACTIVE_SEQUENCE =
-    Array.isArray(CONFIG.MODULE_SEQUENCE) && CONFIG.MODULE_SEQUENCE.length > 0
-      ? CONFIG.MODULE_SEQUENCE
-      : [0];
-
+  const ACTIVE_SEQUENCE = FINAL_MODULE_SEQUENCE.length > 0 ? FINAL_MODULE_SEQUENCE : [0];
   if (START_INDEX < 0 || START_INDEX >= ACTIVE_SEQUENCE.length) START_INDEX = 0;
 
   let mode = ACTIVE_SEQUENCE[START_INDEX];
   let modeIndex = START_INDEX;
   let isSwitching = false;
 
-  // =========================================================
-  // Active Canvas handling
-  // Tracks which canvas (2 or 4) is currently active
-  // =========================================================
-  let activeCanvasMode = null; // 2 or 4
-  let isCanvasVisible = false; // Toggle state
+  let activeCanvasMode = null;
+  let isCanvasVisible = false;
 
-  // Select the initial canvas mode based on configuration
   function pickInitialCanvasMode() {
-    if (!Array.isArray(CONFIG.CANVAS_SEQUENCE)) return null;
-    if (CONFIG.CANVAS_SEQUENCE.length === 0) return null;
-    return Number(CONFIG.CANVAS_SEQUENCE[0]);
+    if (FINAL_CANVAS_SEQUENCE.length === 0) return null;
+    return Number(FINAL_CANVAS_SEQUENCE[0]);
   }
 
-
-  // =========================================================
-  // Global signal unit handling (dBm/dBf/etc)
-  // =========================================================
   let globalSignalUnit = localStorage.getItem("mm_signal_unit") || "dbf";
   let signalUnitListeners = [];
 
-  window.MetricsMonitor.getSignalUnit = function () {
-    return globalSignalUnit;
-  };
-
+  window.MetricsMonitor.getSignalUnit = () => globalSignalUnit;
   window.MetricsMonitor.setSignalUnit = function (unit) {
     if (!unit) return;
     unit = unit.toLowerCase();
@@ -190,20 +182,12 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     localStorage.setItem("mm_signal_unit", unit);
     signalUnitListeners.forEach((fn) => fn(unit));
   };
+  window.MetricsMonitor.onSignalUnitChange = function (fn) { if (typeof fn === "function") signalUnitListeners.push(fn); };
 
-  window.MetricsMonitor.onSignalUnitChange = function (fn) {
-    if (typeof fn === "function") signalUnitListeners.push(fn);
-  };
-
-  // Hook into the existing UI dropdown for signal units
   function hookSignalUnitDropdown() {
     const input = document.getElementById("signal-selector-input");
     const options = document.querySelectorAll("#signal-selector .option");
-
-    if (!input || options.length === 0) {
-      setTimeout(hookSignalUnitDropdown, 500);
-      return;
-    }
+    if (!input || options.length === 0) { setTimeout(hookSignalUnitDropdown, 500); return; }
     input.value = globalSignalUnit;
     window.MetricsMonitor.setSignalUnit(globalSignalUnit);
     options.forEach((opt) => {
@@ -216,9 +200,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
   }
   setTimeout(hookSignalUnitDropdown, 500);
 
-  // =========================================================
-  // Auto-detect plugin Base URL
-  // =========================================================
   let BASE_URL = "";
   (function detectBase() {
     try {
@@ -231,31 +212,15 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
         const src = s.src.split("?")[0].split("#")[0];
         BASE_URL = src.substring(0, src.lastIndexOf("/") + 1);
       }
-    } catch (e) {
-      mmLog("error", "Base URL detection failed", e);
-    }
+    } catch (e) { mmLog("error", "Base URL detection failed", e); }
   })();
 
-  function url(file) {
-    return BASE_URL + file.replace(/^\.\//, "");
-  }
-
-  // =========================================================
-  // Dynamic Resource Loading (CSS/JS)
-  // =========================================================
-  function loadCss(file) {
-    const href = url(file);
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = href;
-    document.head.appendChild(link);
-  }
-
+  function url(file) { return BASE_URL + file.replace(/^\.\//, ""); }
+  function loadCss(file) { const link = document.createElement("link"); link.rel = "stylesheet"; link.href = url(file); document.head.appendChild(link); }
   function loadScript(file) {
     return new Promise((resolve, reject) => {
-      const src = url(file);
       const el = document.createElement("script");
-      el.src = src;
+      el.src = url(file);
       el.async = false;
       el.onload = () => resolve();
       el.onerror = (err) => reject(err);
@@ -263,9 +228,6 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
     });
   }
 
-  // =========================================================
-  // Build module area (Panel rendering)
-  // =========================================================
   function buildMeters() {
     const meters = document.getElementById("level-meter-container");
     if (!meters) return;
@@ -274,69 +236,45 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 
     if (mode === 0) window.MetricsAudioMeter?.init("level-meter-container");
     else if (mode === 1) {
-      if (window.MetricsMeters && typeof window.MetricsMeters.resetValues === "function") {
-        window.MetricsMeters.resetValues();
-      }
+      if (window.MetricsMeters && typeof window.MetricsMeters.resetValues === "function") window.MetricsMeters.resetValues();
       window.MetricsMeters?.initMeters(meters);
     } else if (mode === 2) window.MetricsAnalyzer?.init("level-meter-container");
     else if (mode === 3) window.MetricsSignalMeter?.init("level-meter-container");
     else if (mode === 4) {
       window.MetricsSignalAnalyzer?.init("level-meter-container");
-      // Ensure text/data updates for the signal panel (headless listener)
-      if (window.MetricsSignalMeter && typeof window.MetricsSignalMeter.startDataListener === "function") {
-        window.MetricsSignalMeter.startDataListener();
-      }
+      if (window.MetricsSignalMeter && typeof window.MetricsSignalMeter.startDataListener === "function") window.MetricsSignalMeter.startDataListener();
+    } else if (mode === 5) {
+      window.MetricsScope?.init("level-meter-container");
     }
   }
-  
-  // ---------------------------------------------------------
-  // Track manual audio mode (B0/B1) even if originated from Header/UI
-  // ---------------------------------------------------------
+
 function trackOutgoingTextCmd(cmd, source = "unknown") {
   const c = String(cmd || "").trim();
-
-  if (c === "B0") {
-    lastAudioMonoState = false;
-    mmLog("log", `Audio state tracked: STEREO (B0) via ${source}`);
-  } else if (c === "B1") {
-    lastAudioMonoState = true;
-    mmLog("log", `Audio state tracked: MONO (B1) via ${source}`);
-  }
-
-  if (c === "B0" || c === "B1" || c === "B2") {
-    lastSentTextMode = c;
-  }
+  if (c === "B0") lastAudioMonoState = false;
+  else if (c === "B1") lastAudioMonoState = true;
+  if (c === "B0" || c === "B1" || c === "B2") lastSentTextMode = c;
 }
 
-// Monkey-patch WebSocket.send to intercept outgoing commands
 function patchTextSocketSend(ws) {
   if (!ws || ws._mmSendPatched) return;
   const origSend = ws.send.bind(ws);
-
   ws.send = (data) => {
     try {
       if (typeof data === "string") {
         const s = data.trim();
-        if (s === "B0" || s === "B1" || s === "B2") {
-          trackOutgoingTextCmd(s, "ws.send");
-        }
+        if (s === "B0" || s === "B1" || s === "B2") trackOutgoingTextCmd(s, "ws.send");
       }
     } catch (e) {}
     return origSend(data);
   };
-
   ws._mmSendPatched = true;
   mmLog("log", "TextSocket.send patched for outgoing command tracking");
 }
 
-
-  // =========================================================
-  // TEXT SOCKET MANAGEMENT
-  // =========================================================
   let TextSocket = null;
   let textSocketReady = false;
-  let liveStereoState = true;          // default = stereo (failsafe)
-  let liveStereoStateKnown = false;    // becomes true once msg.st is received
+  let liveStereoState = true;
+  let liveStereoStateKnown = false;
 
   async function ensureTextSocket() {
     try {
@@ -346,24 +284,18 @@ function patchTextSocketSend(ws) {
 
       if (!textSocketReady) {
         mmLog("log", "TextSocket available via socketPromise.");
-
         TextSocket.addEventListener("message", (evt) => {
           try {
             const msg = JSON.parse(evt.data);
-			if (msg.st !== undefined) {
-				liveStereoStateKnown = true;
-				const newState = msg.st === true || msg.st === 1;
-				if (liveStereoState !== newState) {
-					liveStereoState = newState;
-				}
-			}
-          } catch (e) {
-            /* ignore parse errors */
-          }
+            if (msg.st !== undefined) {
+              liveStereoStateKnown = true;
+              const newState = msg.st === true || msg.st === 1;
+              if (liveStereoState !== newState) liveStereoState = newState;
+            }
+          } catch (e) {}
         });
-
         textSocketReady = true;
-		patchTextSocketSend(TextSocket);
+        patchTextSocketSend(TextSocket);
       }
       return TextSocket;
     } catch (err) {
@@ -374,125 +306,72 @@ function patchTextSocketSend(ws) {
 
   async function sendTextWebSocketCommand(cmd) {
     const ws = await ensureTextSocket();
-    if (!ws) {
-      mmLog("error", `Cannot send "${cmd}" – no TextSocket.`);
-      return;
-    }
-
+    if (!ws) { mmLog("error", `Cannot send "${cmd}" – no TextSocket.`); return; }
     if (ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(cmd);
         mmLog("log", `TextSocket → "${cmd}"`);
-        if (window.MetricsHeader && typeof window.MetricsHeader.setMonoLockFromMode === "function") {
-          window.MetricsHeader.setMonoLockFromMode(cmd);
-        }
-      } catch (err) {
-        mmLog("error", "Failed sending command", { cmd, err });
-      }
+        if (window.MetricsHeader && typeof window.MetricsHeader.setMonoLockFromMode === "function") window.MetricsHeader.setMonoLockFromMode(cmd);
+      } catch (err) { mmLog("error", "Failed sending command", { cmd, err }); }
     } else {
       setTimeout(() => sendTextWebSocketCommand(cmd), 300);
     }
   }
 
-  // =========================================================
-  // MPX / Audio Sync Logic (Canvas-Aware)
-  // Determines if B2 (MPX) or B0/B1 (Audio) is required
-  // =========================================================
   let textModeInitialized = false;
   let lastSentTextMode = null;
   let lastAudioMonoState = null;
 
 function getCurrentAudioStateIsMono() {
-  if (window.MetricsHeader && typeof window.MetricsHeader.getStereoStatus === "function") {
-    return !window.MetricsHeader.getStereoStatus();
-  }
-  // IMPORTANT: if stereo state is unknown yet, assume stereo (NOT mono)
-  if (textSocketReady && liveStereoStateKnown) {
-    return !liveStereoState;
-  }
+  if (window.MetricsHeader && typeof window.MetricsHeader.getStereoStatus === "function") return !window.MetricsHeader.getStereoStatus();
+  if (textSocketReady && liveStereoStateKnown) return !liveStereoState;
   return false;
 }
 
 function syncTextWebSocketMode(isInitial) {
-  if (syncTextWebSocketMode._restoreTimer) {
-    clearTimeout(syncTextWebSocketMode._restoreTimer);
-    syncTextWebSocketMode._restoreTimer = null;
-  }
+  if (syncTextWebSocketMode._restoreTimer) { clearTimeout(syncTextWebSocketMode._restoreTimer); syncTextWebSocketMode._restoreTimer = null; }
 
   let cmd = null;
-
-  const moduleIsMPX = (mode === 1 || mode === 2);
-  const canvasIsMPX = (activeCanvasMode === 2 && isCanvasVisible);
+  const moduleIsMPX = (mode === 1 || mode === 2 || mode === 5);
+  const canvasIsMPX = ((activeCanvasMode === 2 || activeCanvasMode === 5) && isCanvasVisible);
   const needMPX = moduleIsMPX || canvasIsMPX;
-
   const restoreNormalCmd = () => (lastAudioMonoState === true ? "B1" : "B0");
 
-  mmLog(
-    "log",
-    `syncTextWebSocketMode(init=${!!isInitial}, MPXmode=${CONFIG.MPXmode}, mode=${mode}, canvas=${activeCanvasMode}, needMPX=${needMPX}, lastSent=${lastSentTextMode}, lastMono=${lastAudioMonoState})`
-  );
+  mmLog("log", `syncTextWebSocketMode(init=${!!isInitial}, MPXmode=${CONFIG.MPXmode}, mode=${mode}, canvas=${activeCanvasMode}, needMPX=${needMPX}, lastSent=${lastSentTextMode}, lastMono=${lastAudioMonoState})`);
 
-  // MPXmode = off  => always B0
   if (CONFIG.MPXmode === "off") {
     if (!textModeInitialized && isInitial) cmd = "B0";
     else if (lastSentTextMode !== "B0") cmd = "B0";
     else return;
-  }
-
-  // MPXmode = on   => always B2
-  else if (CONFIG.MPXmode === "on") {
+  } else if (CONFIG.MPXmode === "on") {
     if (lastSentTextMode !== "B2") cmd = "B2";
     else return;
-  }
-
-  // MPXmode = auto
-  else {
+  } else {
     if (needMPX) {
       if (lastSentTextMode !== "B2") cmd = "B2";
       else return;
     } else {
-      // Normal state:
-      // On FIRST load in normal state: ALWAYS B0
-      if (!textModeInitialized && isInitial) {
-        lastAudioMonoState = false;
-        cmd = "B0";
-      } else if (lastSentTextMode === "B2") {
-        // Restore B0/B1 based on manual state prior to MPX
-        cmd = restoreNormalCmd();
-      } else {
-        // Already normal and initialized -> do NOT override manual B0/B1
-        return;
-      }
+      if (!textModeInitialized && isInitial) { lastAudioMonoState = false; cmd = "B0"; }
+      else if (lastSentTextMode === "B2") { cmd = restoreNormalCmd(); }
+      else return;
     }
   }
 
   if (!cmd) return;
 
-  // Enter MPX: freeze current normal state (B0/B1) for later restoration
   if (cmd === "B2") {
     if (lastSentTextMode !== "B2") {
       if (lastSentTextMode === "B1") lastAudioMonoState = true;
       else if (lastSentTextMode === "B0") lastAudioMonoState = false;
-      else {
-        // Fallback if we don't know: read current audio state
-        lastAudioMonoState = !!getCurrentAudioStateIsMono();
-      }
-
-      mmLog(
-        "log",
-        `Switching TO MPX (B2). Frozen restore state: ${lastAudioMonoState ? "MONO (B1)" : "STEREO (B0)"}`
-      );
+      else lastAudioMonoState = !!getCurrentAudioStateIsMono();
     }
-
     sendTextWebSocketCommand("B2");
     textModeInitialized = true;
     return;
   }
 
-  // Restore normal B0/B1 (after leaving B2)
   if (cmd === "B0" || cmd === "B1") {
     const delay = (lastSentTextMode === "B2") ? 80 : 0;
-
     syncTextWebSocketMode._restoreTimer = setTimeout(() => {
       sendTextWebSocketCommand(cmd);
       textModeInitialized = true;
@@ -501,74 +380,34 @@ function syncTextWebSocketMode(isInitial) {
   }
 }
 
-
-  // =========================================================
-  // Cleanup function for current mode
-  // =========================================================
   function cleanupCurrentMode() {
-    //console.log('mode:', mode, ' c-mode:', activeCanvasMode, ' c-visible:', isCanvasVisible);
-    if (!isCanvasVisible || activeCanvasMode !== 2) {
-      if (mode === 1 && window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
-      if (mode === 2 && window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
-      if (mode !== 1 && mode !== 2 && window.MetricsAnalyzer?.cleanup && window.MetricsMeters?.cleanup) {
-        window.MetricsAnalyzer.cleanup();
-        window.MetricsMeters.cleanup();
+    const mainContainerId = "level-meter-container";
+
+    if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) window.MetricsAnalyzer.destroy(mainContainerId);
+    if (window.MetricsScope && window.MetricsScope.destroy) window.MetricsScope.destroy(mainContainerId);
+    if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) window.MetricsSignalAnalyzer.destroy(mainContainerId);
+
+    if (isCanvasVisible) {
+      if (window.MetricsMeters?.createWebSocket) {
+        window.MetricsMeters.createWebSocket();
       }
-    } else if (isCanvasVisible && activeCanvasMode === 2) {
-      if (mode !== 1) window.MetricsMeters?.createWebSocket();
-      if (mode !== 2) {
-        // --- 1. Analyzer Init ---
-        if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
-          window.MetricsAnalyzer.init("mm-combo-analyzer-container", {
-            instanceKey: "combo-main",
-            embedded: true,
-            useLegacyCss: false
-          });
-
-          // Safe Resize
-          setTimeout(() => {
-            const wrap = document.getElementById("mm-combo-analyzer-container");
-            const canvas = wrap ? (wrap.querySelector("canvas") || document.querySelector("#mm-combo-analyzer-container canvas")) : null;
-
-            if (wrap && canvas) {
-                wrap.style.border = "none";
-                const safeResize = () => {
-                    const width = wrap.clientWidth;
-                    const height = wrap.clientHeight;
-                    if (!width || width === 0) { window.requestAnimationFrame(safeResize); return; }
-                    const dpr = window.devicePixelRatio || 1;
-                    if (canvas.width !== Math.floor(width * dpr)) {
-                         canvas.width = Math.floor(width * dpr);
-                         canvas.height = Math.floor(height * dpr);
-                         const ctx = canvas.getContext("2d");
-                         if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                         try {
-                            if (typeof Chart !== "undefined" && Chart.getChart) {
-                                const ch = Chart.getChart(canvas);
-                                if (ch) ch.resize();
-                            }
-                        } catch(e){}
-                    }
-                };
-                window.requestAnimationFrame(safeResize);
-                const resizeObserver = new ResizeObserver(() => { window.requestAnimationFrame(safeResize); });
-                resizeObserver.observe(wrap);
-            } 
-          }, 200); 
-        }
-      }
-
+      return;
     }
+
+    if (mode === 1 && window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
+    if (mode === 2 && window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
+    if (mode !== 1 && mode !== 2) {
+      if (window.MetricsAnalyzer?.cleanup) window.MetricsAnalyzer.cleanup();
+      if (window.MetricsMeters?.cleanup) window.MetricsMeters.cleanup();
+    }
+    if (mode !== 5 && window.MetricsScope?.cleanup) window.MetricsScope.cleanup();
   }
 
-  // =========================================================
-  // Switching & Panel Logic
-  // =========================================================
   function switchModeWithFade(nextMode) {
     const meters = document.getElementById("level-meter-container");
     if (!meters) {
+      cleanupCurrentMode();
       mode = nextMode;
-      cleanupCurrentMode();  // Cleanup before switching
       buildMeters();
       syncTextWebSocketMode(false);
       return;
@@ -584,29 +423,21 @@ function syncTextWebSocketMode(isInitial) {
     meters.style.opacity = "0";
 
     setTimeout(() => {
+      cleanupCurrentMode();
       mode = nextMode;
-      cleanupCurrentMode();  // Cleanup before switching
       buildMeters();
       syncTextWebSocketMode(false);
 
       void meters.offsetWidth;
       meters.style.opacity = "1";
-      setTimeout(() => {
-        isSwitching = false;
-      }, FADE_MS);
+      setTimeout(() => { isSwitching = false; }, FADE_MS);
     }, FADE_MS);
   }
 
   function attachToggle() {
     const container = document.getElementById("level-meter-container");
     if (!container) return;
-
-    // Only enable click toggle if there is more than one module available
-    if (ACTIVE_SEQUENCE.length <= 1) {
-      container.style.cursor = "default";
-      return;
-    }
-
+    if (ACTIVE_SEQUENCE.length <= 1) { container.style.cursor = "default"; return; }
     container.style.cursor = "pointer";
     container.addEventListener("click", () => {
       modeIndex = (modeIndex + 1) % ACTIVE_SEQUENCE.length;
@@ -618,13 +449,10 @@ function syncTextWebSocketMode(isInitial) {
     document.addEventListener("keydown", (e) => {
       const tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : "";
       if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
-
       const n = parseInt(e.key, 10);
       if (!Number.isInteger(n) || n < 1 || n > 9) return;
-
       const idx = n - 1;
       if (idx >= ACTIVE_SEQUENCE.length) return;
-
       modeIndex = idx;
       switchModeWithFade(ACTIVE_SEQUENCE[modeIndex]);
     });
@@ -633,27 +461,15 @@ function syncTextWebSocketMode(isInitial) {
   function lockVolumeControls(retry = 0) {
     if (!CONFIG.LockVolumeSlider) return;
     const MAX_RETRIES = 10;
-
     const slider = document.getElementById("volumeSlider");
-    if (slider) {
-      slider.value = "1";
-      slider.disabled = true;
-    } else if (retry < MAX_RETRIES) {
-      setTimeout(() => lockVolumeControls(retry + 1), 500);
-    }
+    if (slider) { slider.value = "1"; slider.disabled = true; }
+    else if (retry < MAX_RETRIES) setTimeout(() => lockVolumeControls(retry + 1), 500);
 
     if (window.Stream?.Fallback?.Player?.Amplification?.gain) {
-      try {
-        Stream.Fallback.Player.Amplification.gain.value = 1.0;
-      } catch (e) {}
-    } else if (retry < MAX_RETRIES) {
-      setTimeout(() => lockVolumeControls(retry + 1), 500);
-    }
+      try { Stream.Fallback.Player.Amplification.gain.value = 1.0; } catch (e) {}
+    } else if (retry < MAX_RETRIES) setTimeout(() => lockVolumeControls(retry + 1), 500);
   }
 
-  // =========================================================
-  // Insert Panel + Tooltip (Only when > 1 module)
-  // =========================================================
   let tooltipShownOnce = false;
   let tooltipTimeout;
 
@@ -665,7 +481,7 @@ function syncTextWebSocketMode(isInitial) {
     panel.id = "signalPanel";
     panel.innerHTML = "";
     panel.style.cssText =
-      "position: relative; min-height: 235px; height: 235px; padding: 10px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; margin-top: -88px; overflow: hidden; align-items: stretch;";
+      "position: relative; min-height: 235px; height: 235px; padding: 10px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; margin-top: -90px; overflow: hidden; align-items: stretch;";
 
     const icons = document.createElement("div");
     icons.id = "signal-icons";
@@ -683,15 +499,13 @@ function syncTextWebSocketMode(isInitial) {
     meters.style.width = "102%";
     panel.appendChild(meters);
 
-    // Only enable panel click + tooltip if there is more than one module
     const allowModuleToggle = ACTIVE_SEQUENCE.length > 1;
     meters.style.cursor = allowModuleToggle ? "pointer" : "default";
 
     if (allowModuleToggle) {
       const customTooltip = document.createElement("div");
-      const activeKeys = ACTIVE_SEQUENCE.map((_, index) => index + 1).join(",");
+      const activeKeys = ACTIVE_SEQUENCE.map((val, index) => index + 1).join(",");
       customTooltip.textContent = "Click here or press a number " + activeKeys + " to change the display mode.";
-
       customTooltip.style.cssText = `
         position: absolute;
         top: 50%;
@@ -714,7 +528,6 @@ function syncTextWebSocketMode(isInitial) {
         text-align: center;
       `;
       panel.appendChild(customTooltip);
-
       meters.addEventListener("mouseenter", () => {
         if (!tooltipShownOnce) {
           clearTimeout(tooltipTimeout);
@@ -731,19 +544,16 @@ function syncTextWebSocketMode(isInitial) {
 
     buildMeters();
 
-ensureTextSocket().then(() => {
-  if (activeCanvasMode == null) activeCanvasMode = pickInitialCanvasMode();
-  syncTextWebSocketMode(true);
-  autoEnableSpectrumWhenReady();
-});
+    ensureTextSocket().then(() => {
+      if (activeCanvasMode == null) activeCanvasMode = pickInitialCanvasMode();
+      syncTextWebSocketMode(true);
+      autoEnableSpectrumWhenReady();
+    });
 
     attachToggle();
     attachHotkeys();
   }
 
-  // =========================================================
-  // UI Cleanup Elements
-  // =========================================================
   function cleanup() {
     const flags = document.getElementById("flags-container-desktop");
     if (flags) flags.style.visibility = "hidden";
@@ -762,9 +572,6 @@ ensureTextSocket().then(() => {
     document.head.appendChild(style);
   }
 
-  // =========================================================
-  // Update Checker
-  // =========================================================
   function checkUpdate(setupOnly, pluginName, urlUpdateLink, urlFetchLink) {
     const isSetupPath = (window.location.pathname || "/").indexOf("/setup") >= 0;
     const ver = typeof plugin_version !== "undefined" ? plugin_version : "Unknown";
@@ -778,18 +585,13 @@ ensureTextSocket().then(() => {
 
         if (remoteVer !== "Unknown" && remoteVer !== ver) {
           mmLog("log", `Update available: ${ver} -> ${remoteVer}`);
-
           if (!setupOnly || isSetupPath) {
             const settings = document.getElementById("plugin-settings");
-            if (settings) {
-              settings.innerHTML += `<br><a href="${urlUpdateLink}" target="_blank">[${pluginName}] Update: ${ver} -> ${remoteVer}</a>`;
-            }
-
+            if (settings) settings.innerHTML += `<br><a href="${urlUpdateLink}" target="_blank">[${pluginName}] Update: ${ver} -> ${remoteVer}</a>`;
             const updateIcon =
               document.querySelector(".wrapper-outer #navigation .sidenav-content .fa-puzzle-piece") ||
               document.querySelector(".wrapper-outer .sidenav-content") ||
               document.querySelector(".sidenav-content");
-
             if (updateIcon) {
               const redDot = document.createElement("span");
               redDot.style.cssText = `
@@ -806,48 +608,32 @@ ensureTextSocket().then(() => {
           }
         }
       })
-      .catch((e) => {
-        mmLog("error", `Update check for ${pluginName} failed`, e);
-      });
+      .catch((e) => { mmLog("error", `Update check for ${pluginName} failed`, e); });
   }
 
-  // =========================================================
-  // TOGGLE BUTTON (MPX/SIGNAL)
-  // =========================================================
-    // =========================================================
-  // Robust button click binding (survives DOM rebuilds via event delegation)
-  // =========================================================
   function installMpxSignalToggleHandlerOnce() {
     window.MetricsMonitor = window.MetricsMonitor || {};
     if (window.MetricsMonitor._mmMpxSignalDelegated) return;
     window.MetricsMonitor._mmMpxSignalDelegated = true;
 
-    document.addEventListener(
-      "click",
-      (ev) => {
-        try {
-          if (ev && ev.__mmMpxHandled) return;
-          const t = ev.target;
-          const btn = t && t.closest ? t.closest("#mpx-signal-toggle-button") : null;
-          if (!btn) return;
-          ev.__mmMpxHandled = true;
-          toggleMpxSignalCanvas();
-        } catch (_) {}
-      },
-      true // capture
-    );
+    document.addEventListener("click", (ev) => {
+      try {
+        if (ev && ev.__mmMpxHandled) return;
+        const t = ev.target;
+        const btn = t && t.closest ? t.closest("#mpx-signal-toggle-button") : null;
+        if (!btn) return;
+        ev.__mmMpxHandled = true;
+        toggleMpxSignalCanvas();
+      } catch (_) {}
+    }, true);
   }
 
   function createMpxSignalButton() {
     installMpxSignalToggleHandlerOnce();
-    
-    // CRITICAL: Stop here if CANVAS_SEQUENCE does not contain 2 or 4.
     if (!HAS_SUPPORTED_CANVAS) return;
-
     const buttonId = "mpx-signal-toggle-button";
     if (document.getElementById(buttonId)) return;
 
-    // Use addIconToPluginPanel if available (Webserver standard function)
     (function waitForFunction() {
       const maxWaitTime = 30000;
       let functionFound = false;
@@ -855,54 +641,30 @@ ensureTextSocket().then(() => {
       const observer = new MutationObserver(() => {
         if (typeof addIconToPluginPanel === "function") {
           observer.disconnect();
-          try {
-            // Create Button with 'wave-square' icon
-            addIconToPluginPanel(buttonId, "MPX/Signal", "solid", "wave-square", "MPX/Signal");
-            functionFound = true;
-          } catch (e) {
-            mmLog("warn", "addIconToPluginPanel failed, using legacy button", e);
-          }
+          try { addIconToPluginPanel(buttonId, "MPX/Signal", "solid", "wave-square", "MPX/Signal"); functionFound = true; }
+          catch (e) { mmLog("warn", "addIconToPluginPanel failed, using legacy button", e); }
         }
       });
 
       observer.observe(document.body, { childList: true, subtree: true });
-
-      setTimeout(() => {
-        observer.disconnect();
-        if (!functionFound) legacyButtonCreate();
-      }, maxWaitTime);
+      setTimeout(() => { observer.disconnect(); if (!functionFound) legacyButtonCreate(); }, maxWaitTime);
     })();
 
-    const buttonCss = `
+    $("<style>").prop("type", "text/css").html(`
       #${buttonId}:hover { color: var(--color-5); filter: brightness(120%); }
       #${buttonId}.active { background-color: var(--color-2) !important; }
-`;
-    $("<style>").prop("type", "text/css").html(buttonCss).appendTo("head");
+    `).appendTo("head");
   }
 
   function legacyButtonCreate() {
-    // Fallback for older versions or non-standard dashboards
     const buttonId = "mpx-signal-toggle-button";
     if (document.getElementById(buttonId)) return;
-
-    // Avoid duplicates if a dashboard list exists (legacy behavior)
     if (document.querySelector(".dashboard-panel-plugin-list")) return;
 
     const BUTTON_NAME = "MPX/SIGNAL";
-
     const aButtonText = $("<strong>", { class: "aspectrum-text", html: BUTTON_NAME });
     const aButton = $("<button>", { id: buttonId, class: "hide-phone bg-color-2" });
-
-    aButton.css({
-      "border-radius": "0px",
-      "width": "100px",
-      "height": "22px",
-      "position": "relative",
-      "margin-top": "16px",
-      "margin-left": "5px",
-      "right": "0px"
-    });
-
+    aButton.css({ "border-radius": "0px", "width": "100px", "height": "22px", "position": "relative", "margin-top": "16px", "margin-left": "5px", "right": "0px" });
     aButton.append(aButtonText);
 
     let buttonWrapper = $("#button-wrapper");
@@ -917,38 +679,24 @@ ensureTextSocket().then(() => {
         buttonWrapper.append(aButton);
       }
     }
-
-    // Note: No direct click handler here (delegation handles it)
   }
 
-    // =========================================================
-  // RDS Logger coexistence helpers (avoid DOM conflicts)
-  // =========================================================
   function getRdsLoggerState() {
     const loggingCanvas = document.getElementById("logging-canvas");
     const btn = document.getElementById("Log-on-off");
     const loaded = !!(loggingCanvas || btn);
-
     let on = false;
     try {
-      // RDS Logger marks the button as .active when running
       if (btn && btn.classList.contains("active")) on = true;
-      // Fallback: visible logging-canvas
       else if (loggingCanvas && getComputedStyle(loggingCanvas).display !== "none") on = true;
     } catch (_) {}
-
     return { loaded, on };
   }
 
-  // Only restore elements that were hidden by MetricsMonitor itself
   function mmHideEl(el) {
     if (!el) return;
     if (el.dataset.mmHiddenByMm === "1") return;
-
-    if (el.dataset.mmOrigDisplay === undefined) {
-      el.dataset.mmOrigDisplay = (el.style && typeof el.style.display === "string") ? el.style.display : "";
-    }
-
+    if (el.dataset.mmOrigDisplay === undefined) el.dataset.mmOrigDisplay = (el.style && typeof el.style.display === "string") ? el.style.display : "";
     el.dataset.mmHiddenByMm = "1";
     el.style.display = "none";
   }
@@ -956,30 +704,20 @@ ensureTextSocket().then(() => {
   function mmRestoreEl(el) {
     if (!el) return;
     if (el.dataset.mmHiddenByMm !== "1") return;
-
     const orig = (el.dataset.mmOrigDisplay !== undefined) ? el.dataset.mmOrigDisplay : "";
     el.style.display = orig;
-
     delete el.dataset.mmHiddenByMm;
     delete el.dataset.mmOrigDisplay;
   }
 
   function setStandardCanvasVisibility(show) {
     const logger = getRdsLoggerState();
-
-    // Elements that normally live in the canvas container
-    // IMPORTANT: #logging-canvas is intentionally ignored here
     const ids = ["signal-canvas", "sdr-graph", "Antenna", "containerRotator", "sdr-graph-button-container"];
-
     ids.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
-
-      // These elements are controlled by the RDS Logger when active
       const loggerManaged = (id === "signal-canvas" || id === "Antenna" || id === "containerRotator");
-
       if (show) {
-        // If logger is ON, don't interfere with its elements
         if (logger.on && loggerManaged) return;
         mmRestoreEl(el);
       } else {
@@ -988,17 +726,13 @@ ensureTextSocket().then(() => {
     });
   }
 
-
-  // Apply custom styling for the MPX/Signal wide view
   function applyCustomContainerStyles() {
     const canvasContainer = document.querySelector(".canvas-container.hide-phone");
     if (!canvasContainer) return;
-
     canvasContainer.style.padding = "0";
     canvasContainer.style.margin = "0";
     canvasContainer.style.lineHeight = "0";
     canvasContainer.style.overflow = "visible";
-
     const parent = canvasContainer.parentElement;
     if (parent) {
       const cs = getComputedStyle(parent);
@@ -1010,11 +744,9 @@ ensureTextSocket().then(() => {
     }
   }
 
-  // Reset custom styling to fix layout when returning to standard view
   function resetContainerStyles() {
     const canvasContainer = document.querySelector(".canvas-container.hide-phone");
     if (!canvasContainer) return;
-
     canvasContainer.style.padding = "";
     canvasContainer.style.margin = "";
     canvasContainer.style.lineHeight = "";
@@ -1024,103 +756,75 @@ ensureTextSocket().then(() => {
     canvasContainer.style.width = "";
   }
 
-    function toggleMpxSignalCanvas() {
+  function toggleMpxSignalCanvas() {
     const logger = getRdsLoggerState();
-
-    // Block toggle if RDS Logger is active to prevent conflicts
     if (logger.on) {
       mmLog("warn", "MPX/Signal toggle blocked: RDS Logger is active");
       if (typeof sendToast === "function") {
-        try {
-          sendToast("warning", "MetricsMonitor", "Disable RDS Logger first (Log button) to use MPX/Signal.", false, false);
-        } catch (_) {}
+        try { sendToast("warning", "MetricsMonitor", "Disable RDS Logger first (Log button) to use MPX/Signal.", false, false); } catch (_) {}
       }
       return;
     }
 
-    // Ensure we have a valid target canvas mode
     if (activeCanvasMode == null) activeCanvasMode = pickInitialCanvasMode();
 
     isCanvasVisible = !isCanvasVisible;
 
-    cleanupCurrentMode();  // Cleanup before switching on canvas open/close
-
     const button = document.getElementById("mpx-signal-toggle-button");
-    const mmContainerCombo = document.getElementById("mm-mpx-combo-flex");
-    const mmContainerSignal = document.getElementById("mm-signal-analyzer-flex");
 
     if (isCanvasVisible) {
-      // --- TURN ON (Show MM canvas) ---
-      if (button) {
-        button.classList.add("active");
-        button.classList.remove("inactive");
-      }
-
-      // Hide standard elements (only those we manage)
+      if (button) { button.classList.add("active"); button.classList.remove("inactive"); }
       setStandardCanvasVisibility(false);
-
-      // Apply full-width styles
       applyCustomContainerStyles();
 
-      // Prepare MM canvas
-      if (activeCanvasMode === 2) {
-        replaceMainCanvasWithMpxComboIfRequired(); // will append/show
-      } else if (activeCanvasMode === 4) {
-        replaceMainCanvasIfRequired(); // will append/show
-      }
+      // Erst erstellen, dann Referenz holen
+      if (activeCanvasMode === 2) replaceMainCanvasWithMpxComboIfRequired();
+      else if (activeCanvasMode === 4) replaceMainCanvasIfRequired();
+      else if (activeCanvasMode === 5) replaceMainCanvasWithScopeIfRequired(true);
 
-      // Show the relevant MM container
-      if (activeCanvasMode === 2 && mmContainerCombo) {
-          mmContainerCombo.style.display = "flex";
-          if(window.mmTriggerResize) window.mmTriggerResize();
-      }
-      if (activeCanvasMode === 4 && mmContainerSignal) {
-          mmContainerSignal.style.display = "flex";
-          if(window.mmTriggerResizeSignal) window.mmTriggerResizeSignal();
-      }
+      // Referenzen NACH dem Erstellen neu lesen
+      const mmContainerCombo   = document.getElementById("mm-mpx-combo-flex");
+      const mmContainerSignal  = document.getElementById("mm-signal-analyzer-flex");
+      const mmContainerScope   = document.getElementById("mm-scope-flex");
 
-      // Sync audio (trigger B2/B1 depending on need)
+      if (activeCanvasMode === 2 && mmContainerCombo)  { mmContainerCombo.style.display = "flex";  if(window.mmTriggerResize) window.mmTriggerResize(); }
+      if (activeCanvasMode === 4 && mmContainerSignal) { mmContainerSignal.style.display = "flex"; if(window.mmTriggerResizeSignal) window.mmTriggerResizeSignal(); }
+      if (activeCanvasMode === 5 && mmContainerScope)  { mmContainerScope.style.display = "flex";  if(window.mmTriggerResizeScope) window.mmTriggerResizeScope(); }
+
       syncTextWebSocketMode(false);
     } else {
-      // --- TURN OFF (Show Standard canvas) ---
-      if (button) {
-        button.classList.remove("active");
+      if (button) { button.classList.remove("active"); button.removeAttribute("disabled"); button.setAttribute("aria-pressed","false"); }
 
-        button.removeAttribute("disabled");
+      const mmContainerCombo   = document.getElementById("mm-mpx-combo-flex");
+      const mmContainerSignal  = document.getElementById("mm-signal-analyzer-flex");
+      const mmContainerScope   = document.getElementById("mm-scope-flex");
 
-        button.setAttribute("aria-pressed","false");
-}
+      if (mmContainerCombo) {
+          mmContainerCombo.style.display = "none";
+          if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) window.MetricsAnalyzer.destroy("mm-combo-analyzer-container");
+      }
+      if (mmContainerSignal) {
+          mmContainerSignal.style.display = "none";
+          if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) window.MetricsSignalAnalyzer.destroy("main-signal-analyzer-container");
+          else if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.cleanup) window.MetricsSignalAnalyzer.cleanup();
+      }
+      if (mmContainerScope) {
+          mmContainerScope.style.display = "none";
+          if (window.MetricsScope && window.MetricsScope.destroy) window.MetricsScope.destroy("main-scope-container");
+          else if (window.MetricsScope && window.MetricsScope.cleanup) window.MetricsScope.cleanup();
+      }
 
-      // Hide MM elements
-      if (mmContainerCombo) mmContainerCombo.style.display = "none";
-      if (mmContainerSignal) mmContainerSignal.style.display = "none";
-
-      // Reset container styles to default
       resetContainerStyles();
-
-      // Show standard elements
       setStandardCanvasVisibility(true);
-
-      // Sync audio (trigger B0)
       syncTextWebSocketMode(false);
     }
   }
 
+  function initCanvasVisibility() { isCanvasVisible = false; setStandardCanvasVisibility(true); }
 
-  function initCanvasVisibility() {
-      // Initially, we want to be in the "OFF" state (Standard View)
-      isCanvasVisible = false;
-      // Ensure MM elements are hidden if they exist
-      setStandardCanvasVisibility(true); 
-  }
-
-  // =========================================================
-  // STARTUP
-  // =========================================================
   function start() {
     mmLog("log", "Starting...");
 
-    // Decide initial active canvas (2 or 4)
     activeCanvasMode = pickInitialCanvasMode();
 
     if (HAS_SUPPORTED_CANVAS) {
@@ -1128,136 +832,102 @@ ensureTextSocket().then(() => {
         createMpxSignalButton();
     }
 
-    // --- CSS (conditional loading) ---
     [
       "css/metricsmonitor.css",
       "css/metricsmonitor_header.css",
-
       NEED_METERS ? "css/metricsmonitor_meters.css" : null,
       NEED_AudioMeter ? "css/metricsmonitor-audiometer.css" : null,
       NEED_ANALYZER ? "css/metricsmonitor-analyzer.css" : null,
       NEED_SIGNAL_METER ? "css/metricsmonitor-signalmeter.css" : null,
-      NEED_SIGNAL_ANALYZER ? "css/metricsmonitor-signal-analyzer.css" : null
-    ]
-      .filter(Boolean)
-      .forEach(loadCss);
+      NEED_SIGNAL_ANALYZER ? "css/metricsmonitor-signal-analyzer.css" : null,
+      NEED_SCOPE ? "css/metricsmonitor-scope.css" : null
+    ].filter(Boolean).forEach(loadCss);
 
-    // --- JS (conditional loading) ---
     const scriptsToLoad = [
       "js/metricsmonitor-header.js",
-
       NEED_METERS ? "js/metricsmonitor-meters.js" : null,
       NEED_AudioMeter ? "js/metricsmonitor-audiometer.js" : null,
       NEED_ANALYZER ? "js/metricsmonitor-analyzer.js" : null,
       NEED_SIGNAL_METER ? "js/metricsmonitor-signalmeter.js" : null,
-      NEED_SIGNAL_ANALYZER ? "js/metricsmonitor-signal-analyzer.js" : null
+      NEED_SIGNAL_ANALYZER ? "js/metricsmonitor-signal-analyzer.js" : null,
+      NEED_SCOPE ? "js/metricsmonitor-scope.js" : null
     ].filter(Boolean);
 
     Promise.all(scriptsToLoad.map(loadScript))
       .then(() => {
-        // Prepare the MM canvases in background, but keep hidden until button pressed
-        if (activeCanvasMode === 2) {
-          replaceMainCanvasWithMpxComboIfRequired();
-        } else if (activeCanvasMode === 4) {
-          replaceMainCanvasIfRequired();
-        }
-
-        // Setup the toggle logic for clicking inside the MM canvas (switching 2 <-> 4)
         setupCanvasToggle();
-
         insertPanel();
         cleanup();
         lockVolumeControls();
       })
-      .catch((err) => {
-        mmLog("error", "Load error", err);
-      });
+      .catch((err) => { mmLog("error", "Load error", err); });
   }
 
   if (CHECK_FOR_UPDATES) checkUpdate(pluginSetupOnlyNotify, pluginName, pluginHomepageUrl, pluginUpdateUrl);
-
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  // =========================================================
-  // CANVAS_SEQUENCE toggle logic (switching between 2 & 4)
-  // =========================================================
   let isCanvasSwitching = false;
-  let canvasTooltipShownOnce = false;
-  let canvasTooltipTimeout;
 
   function switchCanvasWithFade(targetMode) {
-    // Only switch if the custom view is visible
-    if (!isCanvasVisible) {
-        // Update state silently if hidden
-        activeCanvasMode = targetMode;
-        return;
-    }
-    
-    // Switch visual logic
-    const oldEl = (activeCanvasMode === 2) ? document.getElementById("mm-mpx-combo-flex") : document.getElementById("mm-signal-analyzer-flex");
-    const newEl = (targetMode === 2) ? document.getElementById("mm-mpx-combo-flex") : document.getElementById("mm-signal-analyzer-flex");
+    if (!isCanvasVisible) { activeCanvasMode = targetMode; return; }
+
+    const oldEl = (activeCanvasMode === 2) ? document.getElementById("mm-mpx-combo-flex") :
+                  (activeCanvasMode === 4) ? document.getElementById("mm-signal-analyzer-flex") :
+                  document.getElementById("mm-scope-flex");
+    const newEl = (targetMode === 2) ? document.getElementById("mm-mpx-combo-flex") :
+                  (targetMode === 4) ? document.getElementById("mm-signal-analyzer-flex") :
+                  document.getElementById("mm-scope-flex");
 
     if (isCanvasSwitching) return;
     isCanvasSwitching = true;
     const FADE_MS = 150;
 
-    // Fade Out current
-    if (oldEl) {
-        oldEl.style.transition = `opacity ${FADE_MS}ms`;
-        oldEl.style.opacity = '0';
-    }
+    if (oldEl) { oldEl.style.transition = `opacity ${FADE_MS}ms`; oldEl.style.opacity = '0'; }
 
     setTimeout(() => {
-      // Ensure target exists
+      if (activeCanvasMode === 2) { if (window.MetricsAnalyzer && window.MetricsAnalyzer.destroy) window.MetricsAnalyzer.destroy("mm-combo-analyzer-container"); }
+      else if (activeCanvasMode === 4) { if (window.MetricsSignalAnalyzer && window.MetricsSignalAnalyzer.destroy) window.MetricsSignalAnalyzer.destroy("main-signal-analyzer-container"); }
+      else if (activeCanvasMode === 5) { if (window.MetricsScope && window.MetricsScope.destroy) window.MetricsScope.destroy("main-scope-container"); }
+
+      if (oldEl) { oldEl.style.display = 'none'; oldEl.style.opacity = '1'; }
+
+      activeCanvasMode = targetMode;
+
       if (targetMode === 2) replaceMainCanvasWithMpxComboIfRequired();
       else if (targetMode === 4) replaceMainCanvasIfRequired();
+      else if (targetMode === 5) replaceMainCanvasWithScopeIfRequired(true);
 
-      // Swap
-      if (oldEl) {
-          oldEl.style.display = 'none';
-          oldEl.style.opacity = '1'; // reset for next time
-      }
-      
-      const createdEl = (targetMode === 2) ? document.getElementById("mm-mpx-combo-flex") : document.getElementById("mm-signal-analyzer-flex");
+      const createdEl = (targetMode === 2) ? document.getElementById("mm-mpx-combo-flex") :
+                        (targetMode === 4) ? document.getElementById("mm-signal-analyzer-flex") :
+                        document.getElementById("mm-scope-flex");
       if (createdEl) {
           createdEl.style.opacity = '0';
           createdEl.style.display = 'flex';
-          
           requestAnimationFrame(() => {
              createdEl.style.transition = `opacity ${FADE_MS}ms`;
              createdEl.style.opacity = '1';
           });
       }
 
-      activeCanvasMode = targetMode;
       syncTextWebSocketMode(false);
-      
-      // Update scaling immediately for new element
       if (targetMode === 2 && window.mmTriggerResize) window.mmTriggerResize();
       if (targetMode === 4 && window.mmTriggerResizeSignal) window.mmTriggerResizeSignal();
-      
-      setTimeout(() => { isCanvasSwitching = false; }, FADE_MS);
+      if (targetMode === 5 && window.mmTriggerResizeScope) window.mmTriggerResizeScope();
 
-      cleanupCurrentMode();  // Cleanup before switching on canvas mode switch
+      setTimeout(() => { isCanvasSwitching = false; }, FADE_MS);
     }, FADE_MS);
   }
 
   function setupCanvasToggle() {
-    const supported = [2, 4];
-    // Robust check for numbers/strings in filter
-    const active = (CONFIG.CANVAS_SEQUENCE || []).filter((m) => supported.some(s => Number(s) === Number(m))).map(Number);
+    const supported = [2, 4, 5];
+    const active = FINAL_CANVAS_SEQUENCE.filter((m) => supported.some(s => Number(s) === Number(m))).map(Number);
     if (active.length < 2) return;
-
-    // Attach click listener to wrapper container
     const container = document.querySelector(".canvas-container.hide-phone");
     if (!container) return;
-
-    // Note: Trigger only if click was inside MM elements
     container.addEventListener("click", (e) => {
         if (!isCanvasVisible || isCanvasSwitching) return;
-        // Check if click was inside our MM elements
-        if (e.target.closest("#mm-mpx-combo-flex") || e.target.closest("#mm-signal-analyzer-flex")) {
+        if (e.target.closest("#mm-mpx-combo-flex") || e.target.closest("#mm-signal-analyzer-flex") || e.target.closest("#mm-scope-flex")) {
              let currentIndex = active.indexOf(activeCanvasMode);
              if (currentIndex < 0) currentIndex = 0;
              currentIndex = (currentIndex + 1) % active.length;
@@ -1265,661 +935,955 @@ ensureTextSocket().then(() => {
         }
     });
   }
+ 
+const CC_COLOR_SIGNAL = 'rgba(58, 123, 213, 0.9)';
+const CC_COLOR_ACI    = 'rgba(0, 255, 0, 0.85)';
+const CC_COLOR_CCI    = 'rgba(255, 255,0, 0.85)';
+const CC_BG           = 'transparent';
 
-// =========================================================
-// CANVAS_SEQUENCE = 4: Signal + Signal Analyzer
-// =========================================================
-  function replaceMainCanvasIfRequired() {
-    if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4)) return;
+// 100% graph height = 30 dBµV = 40.875 dBf = -78.875 dBm
+const CC_SIGNAL_PEAK_DBF = 40.875; 
 
-    const canvasContainer = document.querySelector(".canvas-container.hide-phone");
-    if (!canvasContainer) return;
+function drawChannelCondition(canvas, signalDbf, aciPct, aciRaw, cciPct, cciRaw, mpPct) {
+  const ctx = canvas.getContext('2d');
+  const W   = canvas.width;
+  const H   = canvas.height;
+  ctx.clearRect(0, 0, W, H);
 
-    // Check if exists
-    if (document.getElementById("mm-signal-analyzer-flex")) {
-        if (isCanvasVisible && activeCanvasMode === 4) {
-             document.getElementById("mm-signal-analyzer-flex").style.display = 'flex';
-        }
-        return; 
-    }
+  const maxH = H * 0.85;
 
-    // --- Create Elements (Append, DO NOT CLEAR) ---
+  const sigDbf    = Math.max(0, Number(signalDbf) || 0);
+  const sigHeight = Math.min(maxH, (sigDbf / CC_SIGNAL_PEAK_DBF) * maxH);
 
-    const INTERNAL_HEIGHT = 160; 
-    const SIGNAL_COL_W = 180;
-    const SIGNAL_BOX_W = 180;
+  const aciH = (aciPct >= 0) ? Math.min(maxH, maxH * (aciPct / 100)) : 0;
+  const cciH = (cciPct >= 0) ? Math.min(maxH, maxH * (cciPct / 100)) : 0;
 
-    const CUSTOM_CSS = `
-      #mm-signal-analyzer-flex{
-        display: none; /* Hidden by default */
-        align-items:stretch;
-        width:100%;
-        height:${INTERNAL_HEIGHT}px !important;
-        min-height:${INTERNAL_HEIGHT}px !important;
-        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
-        border:1px solid rgba(255,255,255,0.45);
-        border-radius:0px;
-        overflow:hidden;
-        box-sizing:border-box;
-        
-        transform-origin: top center;
-        position: relative;
-        z-index: 5;
-        
-        /* Static Transform: 10px right, 10px up */
-        transform: translate(10px, -10px);
-        margin-bottom: -20px; /* Compensate for the upward shift layout-wise if needed */
-      }
-      /* ... (rest of CSS identical) ... */
-      #mm-signal-col{ width:${SIGNAL_COL_W}px; min-width:${SIGNAL_COL_W}px; padding:12px 12px 12px 14px; display:flex; align-items:stretch; justify-content:stretch; box-sizing:border-box; border-right: none !important; }
-      #mm-signal-box{ width:${SIGNAL_BOX_W}px; max-width:100%; flex:1; padding:40px 14px 12px 12px; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
-      #mm-signal-analyzer-flex .signal-panel-layout .signal-heading{ align-self:flex-start; width:100%; padding-left:12px; box-sizing:border-box; margin:0; position:relative; top:-30px; line-height:1; }
-      #mm-signal-analyzer-flex .signal-panel-layout .highest-signal-container{ align-self:flex-start; width:100%; padding-left:12px; box-sizing:border-box; margin-top:-18px; margin-bottom:16px; line-height:1; }
-      #mm-signal-analyzer-flex .signal-panel-layout .text-big { flex-direction:column; align-items:center; text-align:center; line-height:1.05; margin-top:20px; margin-left:-2px; width:100%; }
-      #main-signal-analyzer-container{ position:relative; flex:1; height:110%; padding:0px 6px 12px 12px; overflow:hidden; justify-content:center; box-sizing:border-box; border:none !important; outline:none !important; box-shadow: inset 1px 0 0 rgba(255,255,255,0.10) !important; }
-      #main-signal-analyzer-container [data-mm-signal-analyzer-wrap], #main-signal-analyzer-container [data-mm-signal-analyzer-canvas], #main-signal-analyzer-container canvas{ height:100%; display:block; border:none !important; outline:none !important; box-shadow:none !important; }
-    `;
-
-    const existingStyle = document.getElementById("metrics-signal-analyzer-css");
-    if (existingStyle) {
-      existingStyle.textContent = CUSTOM_CSS;
+  function drawShape(x0, x1, peakY, color, mirror, flatWidth) {
+    const base = H;
+    ctx.beginPath();
+    
+    if (!mirror) {
+      ctx.moveTo(x0, base);
+      ctx.lineTo(x0, peakY);
+      ctx.lineTo(x0 + flatWidth, peakY);
+      const cp1x = x0 + flatWidth + (x1 - (x0 + flatWidth)) * 0.4;
+      const cp1y = peakY;
+      const cp2x = x0 + flatWidth + (x1 - (x0 + flatWidth)) * 0.4;
+      const cp2y = base;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x1, base);
     } else {
-      const style = document.createElement("style");
-      style.id = "metrics-signal-analyzer-css";
-      style.textContent = CUSTOM_CSS;
-      document.head.appendChild(style);
+      ctx.moveTo(x1, base);
+      ctx.lineTo(x1, peakY);
+      ctx.lineTo(x1 - flatWidth, peakY);
+      const cp1x = x1 - flatWidth - ((x1 - flatWidth) - x0) * 0.4;
+      const cp1y = peakY;
+      const cp2x = x1 - flatWidth - ((x1 - flatWidth) - x0) * 0.4;
+      const cp2y = base;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x0, base);
     }
     
-    const flex = document.createElement("div");
-    flex.id = "mm-signal-analyzer-flex";
-    if (isCanvasVisible && activeCanvasMode === 4) flex.style.display = "flex";
-    else flex.style.display = "none";
-    canvasContainer.appendChild(flex);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
 
-    // ... (DOM Creation) ...
-    const signalCol = document.createElement("div");
-    signalCol.id = "mm-signal-col";
-    flex.appendChild(signalCol);
+  const sigX0 = 0;
+  const sigX1 = W * 0.50; // 100% mark for the Signal Peak and Multipath
+  const sigFlatW = W * 0.15;
+  
+  const aciX0 = 0;
+  const aciX1 = W * 0.70;
+  const aciFlatW = W * 0.35;
+  
+  const cciX0 = W * 0.60;
+  const cciX1 = W;
+  const cciFlatW = W * 0.10;
 
-    const signalBox = document.createElement("div");
-    signalBox.id = "mm-signal-box";
-    signalCol.appendChild(signalBox);
+  // 1. ACI in the background
+  if (aciPct >= 0 && aciH > 1) {
+    drawShape(aciX0, aciX1, H - aciH, CC_COLOR_ACI, false, aciFlatW);
+  }
 
-    const signalPanel = document.createElement("div");
-    signalPanel.className = "panel-33 no-bg-phone signal-panel-layout";
-    signalPanel.innerHTML = `
-        <h2 class="signal-heading">SIGNAL</h2>
-        <div class="text-small text-gray highest-signal-container">
-          <i class="fa-solid fa-arrow-up"></i>
-          <span id="data-signal-highest"></span>
-          <span class="signal-units"></span>
+  // 2. Blue Signal
+  drawShape(sigX0, sigX1, H - sigHeight, CC_COLOR_SIGNAL, false, sigFlatW);
+
+  // 3. Red Multipath Overlay (clipped to the calculated % width of the blue signal)
+  if (mpPct > 0) {
+    ctx.save();
+    const mpWidth = sigX1 * (Math.min(100, mpPct) / 100);
+    ctx.beginPath();
+    ctx.rect(0, 0, mpWidth, H);
+    ctx.clip(); // Limit the drawing area to mpWidth
+    
+    // Draw red color using the same shape as the blue signal
+    drawShape(sigX0, sigX1, H - sigHeight, 'rgba(255, 0, 0, 0.85)', false, sigFlatW);
+    ctx.restore();
+
+    // Fix label (MP) aligned to the left
+    ctx.fillStyle = 'rgba(255, 60, 60, 1)';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    const textX = 2; // Fixed distance from the left edge
+    
+    // Only show text if the bar has a visible width
+    if (mpWidth > 0) {
+        ctx.fillText('MP ' + Math.round(mpPct) + '%', textX, Math.max(10, H - Math.max(sigHeight, 15) - 5));
+    }
+  }
+
+  // 4. CCI
+  if (cciPct >= 0 && cciH > 1) {
+    drawShape(cciX0, cciX1, H - cciH, CC_COLOR_CCI, true, cciFlatW);
+  }
+
+  // Bottom line
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, H - 1);
+  ctx.lineTo(W, H - 1);
+  ctx.stroke();
+}
+
+
+function replaceMainCanvasIfRequired() {
+  if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4)) return;
+
+  const canvasContainer = document.querySelector(".canvas-container.hide-phone");
+  if (!canvasContainer) return;
+
+  if (document.getElementById("mm-signal-analyzer-flex")) {
+      if (isCanvasVisible && activeCanvasMode === 4) document.getElementById("mm-signal-analyzer-flex").style.display = 'flex';
+      return;
+  }
+
+  const INTERNAL_HEIGHT = 160;
+  const CC_CANVAS_W = 170;
+  const SIGNAL_BOX_W = 125;
+  const COL_GAP = 15;
+  const LEFT_COL_W = CC_CANVAS_W + COL_GAP; 
+
+  const CUSTOM_CSS = `
+    #mm-signal-analyzer-flex{
+      display: none;
+      align-items:stretch;
+      width:100%;
+      height:${INTERNAL_HEIGHT}px !important;
+      min-height:${INTERNAL_HEIGHT}px !important;
+      background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+      border:1px solid rgba(255,255,255,0.45);
+      border-radius:0px;
+      overflow:hidden;
+      box-sizing:border-box;
+      transform-origin: top center;
+      position: relative;
+      z-index: 5;
+      transform: translate(10px, -10px);
+      margin-bottom: -20px;
+    }
+    
+    /* LEFT COLUMN: ACI/CCI Canvas */
+    #mm-signal-left-col { 
+      width: ${LEFT_COL_W}px;
+      min-width: ${LEFT_COL_W}px;
+      display:flex; 
+      flex-direction: row;
+      align-items:center; 
+      padding:12px; 
+      box-sizing:border-box; 
+      border-right: 1px solid rgba(255,255,255,0.15) !important;
+    }
+    
+    /* Channel Condition Canvas overlay styles */
+    #mm-cc-wrapper {
+      display: flex;
+      flex-direction: column;
+      width: ${CC_CANVAS_W}px;
+      min-width: ${CC_CANVAS_W}px;
+      height: 100%;
+      margin-left: -5px;
+      background: transparent;
+      border: 0px solid rgba(255,255,255,0.45);
+      border-radius: 0px;
+      overflow: hidden;
+    }
+    #mm-cc-canvas {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #mm-cc-labels {
+      display: flex;
+      flex-direction: row;
+      width: 105%;
+      margin-left: 2px;
+      padding: 4px 0;
+    }
+    .cc-label-col {
+      flex: 1;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .cc-label-title {
+      color: #ccc;
+      font-size: 11px;
+      display: block;
+    }
+    .cc-label-value {
+      color: #fff;
+      font-size: 13px;
+      font-weight: bold;
+      display: block;
+    }
+
+    /* CENTER COLUMN: Signal Graph */
+    #main-signal-analyzer-container { 
+      position:relative; 
+      flex:1; 
+      height:110%; 
+      padding:0px 6px 12px 12px; 
+      overflow:hidden; 
+      justify-content:center; 
+      box-sizing:border-box; 
+      border:none !important; 
+      outline:none !important; 
+      box-shadow: inset 1px 0 0 rgba(255,255,255,0.10) !important; 
+    }
+    #main-signal-analyzer-container [data-mm-signal-analyzer-wrap], 
+    #main-signal-analyzer-container [data-mm-signal-analyzer-canvas], 
+    #main-signal-analyzer-container canvas { 
+      height:100%; 
+      display:block; 
+      border:none !important; 
+      outline:none !important; 
+      box-shadow:none !important; 
+    }
+
+    /* RIGHT COLUMN: Signal Box (matches Signal Meter Module) */
+    #mm-signal-right-col {
+      width: ${SIGNAL_BOX_W}px;
+      min-width: ${SIGNAL_BOX_W}px;
+      flex: 0 0 ${SIGNAL_BOX_W}px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      border-left: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 6px;
+      background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+    }
+    
+    .cv-signal-heading {
+      display: block;
+      text-align: center;
+      width: 100%;
+      color: #3A8BCC;
+      font-size: 24px;
+      margin-top: 0px;
+      margin-bottom: 4px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    
+    .cv-highest-container {
+      color: #aaa;
+      font-size: 10px;
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+    }
+
+    .cv-signal-big {
+      text-align: center;
+      line-height: 1.1;
+      margin-top: -4px;
+      width: 100%;
+      display: block;
+    }
+    
+    #cv-signal-main {
+      font-size: 38px !important;
+      font-weight: 300; 
+      color: #fff;
+    }
+    
+    #cv-signal-decimal {
+      font-size: 26px !important;
+      font-weight: 300;
+      opacity: 0.7;
+      color: #fff;
+    }
+    
+    .cv-signal-unit {
+      display: block;
+      margin-top: -2px;
+      font-size: 14px !important;
+      line-height: 1.2;
+      color: #888;
+      text-align: center;
+      width: 100%;
+    }
+    
+    .cv-multipath-container {
+       margin-top: 16px;
+       font-size: 13px;
+       color: #3A8BCC;
+       text-align: center;
+       display: block; /* always block to prevent jumping layout */
+       font-weight: bold;
+    }
+    .cv-multipath-container span {
+       color: #fff;
+       font-weight: normal;
+    }
+  `;
+  let style = document.getElementById("metrics-signal-analyzer-css");
+  if (!style) { style = document.createElement("style"); style.id = "metrics-signal-analyzer-css"; document.head.appendChild(style); }
+  style.textContent = CUSTOM_CSS;
+
+  const flex = document.createElement("div");
+  flex.id = "mm-signal-analyzer-flex";
+  flex.style.display = (isCanvasVisible && activeCanvasMode === 4) ? "flex" : "none";
+  canvasContainer.appendChild(flex);
+
+  // --- LEFT COLUMN (ACI/CCI Canvas) ---
+  const leftCol = document.createElement("div");
+  leftCol.id = "mm-signal-left-col";
+  flex.appendChild(leftCol);
+
+  const ccWrapper = document.createElement('div');
+  ccWrapper.id = "mm-cc-wrapper";
+
+  const ccCanvas = document.createElement('canvas');
+  ccCanvas.id = "mm-cc-canvas";
+
+  const ccLabels = document.createElement('div');
+  ccLabels.id = "mm-cc-labels";
+
+  const labelEls = {};
+  ['signal', 'aci', 'cci'].forEach((key) => {
+    const col = document.createElement('div');
+    col.className = 'cc-label-col';
+
+    const title = document.createElement('span');
+    title.className = 'cc-label-title';
+    title.textContent = key.toUpperCase();
+
+    const value = document.createElement('span');
+    value.className = 'cc-label-value';
+    value.textContent = '---';
+    labelEls[key] = value;
+
+    col.appendChild(title);
+    col.appendChild(value);
+    ccLabels.appendChild(col);
+  });
+
+  ccWrapper.appendChild(ccCanvas);
+  ccWrapper.appendChild(ccLabels);
+  leftCol.appendChild(ccWrapper);
+
+  // --- CENTER COLUMN (Chart Canvas) ---
+  const analyzerHost = document.createElement("div");
+  analyzerHost.id = "main-signal-analyzer-container";
+  flex.appendChild(analyzerHost);
+
+  // --- RIGHT COLUMN (Signal Panel) ---
+  const rightCol = document.createElement("div");
+  rightCol.id = "mm-signal-right-col";
+  flex.appendChild(rightCol);
+
+  rightCol.innerHTML = `
+      <div style="width:100%; transition: transform 0.3s ease; padding-top: 5px;" id="cv-signal-values-wrapper" data-mm-signal="values-wrapper">
+        <h2 class="cv-signal-heading">SIGNAL</h2>
+        <div class="cv-highest-container">
+          <i class="fa-solid fa-arrow-up" style="font-size:10px; margin-right: 4px;"></i>
+          <span id="cv-signal-highest" data-mm-signal="highest">---</span>&nbsp;
+          <span class="cv-signal-unit-small signal-units">dBf</span>
         </div>
-        <div class="text-big">
-          <span id="data-signal"></span><!--
-       --><span id="data-signal-decimal" class="text-medium-big" style="opacity:0.7;"></span>
-          <span class="signal-units text-medium">dBf</span>
+        <div class="cv-signal-big">
+          <span id="cv-signal-main" data-mm-signal="main">--</span><!--
+       --><span id="cv-signal-decimal" data-mm-signal="decimal">.-</span>
         </div>
-    `;
-    signalBox.appendChild(signalPanel);
+        <div class="cv-signal-unit signal-units">dBf</div>
+      </div>
+      <div id="cv-multipath" class="cv-multipath-container" data-mm-signal="multipath-container">
+        Multipath: <span id="cv-multipath-val" data-mm-signal="multipath-value">--%</span>
+      </div>
+  `;
 
-    signalPanel.style.background = "none";
-    signalPanel.style.border = "none";
-    signalPanel.style.boxShadow = "none";
-    signalPanel.style.margin = "0";
-    signalPanel.style.padding = "0";
-    signalPanel.style.height = "100%";
-    signalPanel.style.display = "flex";
-    signalPanel.style.flexDirection = "column";
-    signalPanel.style.justifyContent = "center";
-    signalPanel.style.alignItems = "flex-start";
+  // Setup rendering for Channel Condition Canvas
+  let ccRafId = null;
+  
+  // Variables for slow graphic decay & attack
+  let smoothedSignal = 0;
+  let smoothedAci = 0;
+  let smoothedCci = 0;
+  let smoothedMp = 0;
+  const ATTACK_FACTOR = 0.25; // Slower rise
+  const DECAY_FACTOR = 0.08;  // Slower fall
+  
+  function renderChannelCondition() {
+      if (!flex.isConnected) { ccRafId = null; return; }
 
+      const dpr = window.devicePixelRatio || 1;
+      const dispW = ccCanvas.clientWidth || ccCanvas.width / dpr;
+      const dispH = ccCanvas.clientHeight || ccCanvas.height / dpr;
+
+      if (Math.round(dispW * dpr) !== ccCanvas.width || Math.round(dispH * dpr) !== ccCanvas.height) {
+          ccCanvas.width = Math.round(dispW * dpr);
+          ccCanvas.height = Math.round(dispH * dpr);
+          const ctx = ccCanvas.getContext('2d');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      let aci = -1;
+      let cci = -1;
+      let mpTarget = 0;
+      let signalDisplay = "---";
+      let baseDbf = 0;
+
+      // 1. Process Signal Data natively
+      if (window.MetricsSignalMeter && window.MetricsSignalMeter.levels) {
+           const hfValue = window.MetricsSignalMeter.levels.hfValue;
+           baseDbf = (typeof window.MetricsSignalMeter.levels.hfBase === 'number' && !isNaN(window.MetricsSignalMeter.levels.hfBase)) 
+                      ? window.MetricsSignalMeter.levels.hfBase : 0;
+           
+           const currentUnit = (window.MetricsMonitor && typeof window.MetricsMonitor.getSignalUnit === 'function') ? window.MetricsMonitor.getSignalUnit() : "dbf";
+           let displayUnit = currentUnit.toLowerCase() === 'dbuv' ? 'dBµV' : 
+                             currentUnit.toLowerCase() === 'dbm' ? 'dBm' : 'dBf';
+
+           signalDisplay = (typeof hfValue === 'number' && !isNaN(hfValue)) ? hfValue.toFixed(1) + " " + displayUnit : "---";
+      }
+
+      // 2. Pull ACI, CCI, and Multipath directly from the HUB to ensure they are always captured even if the Signal Meter Module is off
+      if (window.__MM_SIGNALMETER_HUB__) {
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestAci === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestAci)) {
+              aci = window.__MM_SIGNALMETER_HUB__.latestAci;
+          }
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestCci === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestCci)) {
+              cci = window.__MM_SIGNALMETER_HUB__.latestCci;
+          }
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestMultipath === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestMultipath)) {
+              mpTarget = window.__MM_SIGNALMETER_HUB__.latestMultipath;
+          }
+      }
+
+      // Fallbacks just in case the HUB didn't have them
+      if (aci === -1 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels && typeof window.MetricsSignalMeter.levels.aci === 'number') {
+          aci = window.MetricsSignalMeter.levels.aci;
+      }
+      if (cci === -1 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels && typeof window.MetricsSignalMeter.levels.cci === 'number') {
+          cci = window.MetricsSignalMeter.levels.cci;
+      }
+      if (mpTarget === 0 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels) {
+          let mpRaw = window.MetricsSignalMeter.levels.multipath !== undefined ? window.MetricsSignalMeter.levels.multipath : window.MetricsSignalMeter.levels.mp;
+          if (typeof mpRaw === 'number' && !isNaN(mpRaw)) mpTarget = mpRaw;
+      }
+
+      // Ensure valid boundaries
+      aci = (aci >= 0 && !isNaN(aci)) ? aci : -1;
+      cci = (cci >= 0 && !isNaN(cci)) ? cci : -1;
+
+      // Calculate smoothed graphics values (sluggish attack and decay)
+      if (baseDbf > smoothedSignal) smoothedSignal += (baseDbf - smoothedSignal) * ATTACK_FACTOR;
+      else smoothedSignal += (baseDbf - smoothedSignal) * DECAY_FACTOR;
+
+      let targetAci = aci >= 0 ? aci : 0;
+      if (targetAci > smoothedAci) smoothedAci += (targetAci - smoothedAci) * ATTACK_FACTOR;
+      else smoothedAci += (targetAci - smoothedAci) * DECAY_FACTOR;
+
+      let targetCci = cci >= 0 ? cci : 0;
+      if (targetCci > smoothedCci) smoothedCci += (targetCci - smoothedCci) * ATTACK_FACTOR;
+      else smoothedCci += (targetCci - smoothedCci) * DECAY_FACTOR;
+      
+      if (mpTarget > smoothedMp) smoothedMp += (mpTarget - smoothedMp) * ATTACK_FACTOR;
+      else smoothedMp += (mpTarget - smoothedMp) * DECAY_FACTOR;
+
+      // Draw graph with smoothed variables
+      drawChannelCondition(ccCanvas, smoothedSignal, smoothedAci, aci, smoothedCci, cci, smoothedMp);
+
+      // Update text labels
+      if (labelEls.signal) labelEls.signal.textContent = signalDisplay;
+      if (labelEls.aci) labelEls.aci.textContent = (aci >= 0) ? `${aci}%` : "---";
+      if (labelEls.cci) labelEls.cci.textContent = (cci >= 0) ? `${cci}%` : "---";
+
+      ccRafId = requestAnimationFrame(renderChannelCondition);
+  }
+  ccRafId = requestAnimationFrame(renderChannelCondition);
+
+  const applyCanvasSizingAndRemoveInnerBorder = () => {
+    const container = document.getElementById("main-signal-analyzer-container");
+    const canvas = container ? container.querySelector('canvas[data-mm-signal-analyzer-canvas], canvas') : null;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     try {
-      if (window.MetricsMonitor?.onSignalUnitChange) {
-        window.MetricsMonitor.onSignalUnitChange((unit) => {
-          signalBox.querySelectorAll(".signal-units").forEach((el) => (el.textContent = String(unit || "").toLowerCase()));
-        });
-        if (window.MetricsMonitor.getSignalUnit) {
-          const u = window.MetricsMonitor.getSignalUnit();
-          if (u) signalBox.querySelectorAll(".signal-units").forEach((el) => (el.textContent = String(u).toLowerCase()));
+      if (typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
+        const ch = Chart.getChart(canvas);
+        if (ch?.options?.scales) {
+          ["x", "y"].forEach((ax) => {
+            const s = ch.options.scales[ax];
+            if (!s) return;
+            s.border = Object.assign({}, s.border || {}, { display: false });
+            if (s.grid) s.grid.drawBorder = false;
+            if (s.grid) { s.grid.borderColor = "rgba(0,0,0,0)"; s.grid.borderWidth = 0; }
+          });
+          ch.update("none");
         }
       }
     } catch (e) {}
+  };
 
-    const analyzerHost = document.createElement("div");
-    analyzerHost.id = "main-signal-analyzer-container";
-    flex.appendChild(analyzerHost);
-
-    // Initialization logic
-    const applyCanvasSizingAndRemoveInnerBorder = () => {
-      const container = document.getElementById("main-signal-analyzer-container");
-      const canvas = container ? container.querySelector('canvas[data-mm-signal-analyzer-canvas], canvas') : null;
-      if (!canvas || !container) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      const ctx = canvas.getContext("2d");
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      try {
-        if (typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
-          const ch = Chart.getChart(canvas);
-          if (ch?.options?.scales) {
-            ["x", "y"].forEach((ax) => {
-              const s = ch.options.scales[ax];
-              if (!s) return;
-              s.border = Object.assign({}, s.border || {}, { display: false });
-              if (s.grid) s.grid.drawBorder = false;
-              if (s.grid) { s.grid.borderColor = "rgba(0,0,0,0)"; s.grid.borderWidth = 0; }
+  const tryInit = (attempt = 0) => {
+    const analyzer = window.MetricsSignalAnalyzer;
+    if (!analyzer || typeof analyzer.init !== "function" || !window.MetricsSignalMeter) {
+      if (attempt < 25) return setTimeout(() => tryInit(attempt + 1), 200);
+      return;
+    }
+    
+    // Independently hook a text-only meter instance to the right panel so it continues to read data even when Module 3 is disabled
+    if (typeof window.MetricsSignalMeter.createInstance === "function") {
+        if (!window.mmSignalMeterCanvas4Inst) {
+            window.mmSignalMeterCanvas4Inst = window.MetricsSignalMeter.createInstance("mm-signal-right-col", {
+                instanceKey: "canvas4-signal-meter",
+                textOnly: true,
+                bindExisting: false
             });
-            ch.update("none");
-          }
         }
-      } catch (e) {}
-    };
+    }
 
-    const tryInit = (attempt = 0) => {
-      const analyzer = window.MetricsSignalAnalyzer;
-      if (!analyzer || typeof analyzer.init !== "function") {
-        if (attempt < 25) return setTimeout(() => tryInit(attempt + 1), 200);
-        return;
-      }
-      let canvasSigAnalyzerInstance = null;
-      if (typeof analyzer.createInstance === "function") {
-        canvasSigAnalyzerInstance = analyzer.createInstance({
-          containerId: "main-signal-analyzer-container",
-          instanceKey: "canvas4",
-          embedded: true,
-          useLegacyCss: false,
-          hideValueAndUnit: true
-        });
-      } else {
-        analyzer.init("main-signal-analyzer-container");
-      }
-      if (window.MetricsSignalMeter && typeof window.MetricsSignalMeter.startDataListener === "function") {
-        window.MetricsSignalMeter.startDataListener();
-      }
+    let canvasSigAnalyzerInstance = null;
+    if (typeof analyzer.createInstance === "function") {
+      canvasSigAnalyzerInstance = analyzer.createInstance({
+        containerId: "main-signal-analyzer-container",
+        instanceKey: "canvas4",
+        embedded: true,
+        useLegacyCss: false,
+        hideValueAndUnit: true
+      });
+    } else {
+      analyzer.init("main-signal-analyzer-container");
+    }
+    if (typeof window.MetricsSignalMeter.startDataListener === "function") window.MetricsSignalMeter.startDataListener();
+    setTimeout(() => {
+      applyCanvasSizingAndRemoveInnerBorder();
+      (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
+    }, 0);
+    window.addEventListener("resize", () => {
+      (canvasSigAnalyzerInstance?.resize || analyzer.resize)?.();
       setTimeout(() => {
         applyCanvasSizingAndRemoveInnerBorder();
         (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
       }, 0);
-      window.addEventListener("resize", () => {
-        (canvasSigAnalyzerInstance?.resize || analyzer.resize)?.();
-        setTimeout(() => {
-          applyCanvasSizingAndRemoveInnerBorder();
-          (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
-        }, 0);
-      });
-    };
-    tryInit();
-  }
+    });
+  };
+  tryInit();
+}
+  
+function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
+    if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 5)) return;
 
-// =========================================================
-// CANVAS_SEQUENCE = 2: MPX Combo (Meters Left / Analyzer Right)
-// =========================================================
+    const canvasContainer = document.querySelector(".canvas-container.hide-phone");
+    if (!canvasContainer) return;
+
+    let flex = document.getElementById("mm-scope-flex");
+    if (flex && !forceReinit) {
+        if (isCanvasVisible && activeCanvasMode === 5) {
+            flex.style.display = 'flex';
+            if(window.mmTriggerResizeScope) window.mmTriggerResizeScope();
+        }
+        return;
+    }
+
+    const INTERNAL_HEIGHT = 160;
+    const METERS_COL_W = 180;
+    const DBR_COL_W = 120;
+
+    const CUSTOM_CSS = `
+      #mm-scope-flex{
+        display: none;
+        align-items: stretch;
+        width: 100%;
+        height: ${INTERNAL_HEIGHT}px !important;
+        min-height:${INTERNAL_HEIGHT}px !important;
+        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+        border: 1px solid rgba(255,255,255,0.45);
+        border-radius: 0px;
+        overflow: hidden;
+        box-sizing:border-box;
+        transform-origin: top center;
+        position: relative;
+        z-index: 5;
+        transform: translate(10px, -10px);
+        margin-bottom: -20px;
+      }
+      #mm-scope-meters-col {
+        width: ${METERS_COL_W}px;
+        min-width: ${METERS_COL_W}px;
+        flex: 0 0 ${METERS_COL_W}px;
+        top: 0px;
+        display: flex;
+        flex-direction: row;
+        justify-content: space-evenly;
+        align-items: stretch;
+        padding: 10px 2px 2px 2px;
+        box-sizing: border-box;
+        border-right: 1px solid rgba(255,255,255,0.1);
+        position: relative;
+        z-index: 5;
+        height: 100%;
+      }
+      #mm-scope-meters-inner {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        justify-content: space-around;
+      }
+      #mm-scope-flex .level-meter { margin: -5px 1px; height: 100%; display: flex; flex-direction: column; justify-content: flex-start; position: relative; flex: 1; overflow: visible !important; }
+      #mm-scope-flex .meter-top { display: flex !important; flex-direction: row !important; width: 100%; height: 100%; position: relative; }
+      #mm-scope-flex .meter-scale { display: flex !important; flex-direction: column; justify-content: space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: -7px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
+      #mm-scope-flex .meter-wrapper { flex: 1; width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+      #mm-scope-flex .level-meter canvas { display: block !important; visibility: visible !important; width: 100% !important; max-width: 30px !important; height: auto !important; flex: 1 1 auto !important; margin-bottom: 20px !important; }
+      #mm-scope-flex .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 6px !important; line-height: 1.0 !important; font-size: 10px !important; text-align: center !important; width: 100%; }
+      #mm-scope-flex .meter-bar .segment { border-bottom: 1px solid transparent !important; background-clip: padding-box !important; margin-bottom: 0 !important; box-sizing: border-box; }
+      #mm-scope-meters-inner .stereo-group,
+      #mm-scope-meters-inner #mm-scope-left-meter-wrapper,
+      #mm-scope-meters-inner #mm-scope-right-meter-wrapper,
+      #mm-scope-meters-inner #mm-scope-hf-meter-wrapper,
+      #mm-scope-meters-inner #eqHintWrapper,
+      #mm-scope-meters-inner #eqHintText { display: none !important; }
+      #mm-scope-flex #volumeSlider,
+      #mm-scope-flex [id*="volume"],
+      #mm-scope-flex [class*="volume"] { display: none !important; }
+      #main-scope-container{
+        position: relative;
+        flex: 1;
+        height: 100%;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden;
+        box-sizing: border-box;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+      }
+      /* ── right dBr panel ── */
+      #mm-scope-dbr-col {
+        width: ${DBR_COL_W}px;
+        min-width: ${DBR_COL_W}px;
+        flex: 0 0 ${DBR_COL_W}px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        border-left: 1px solid rgba(255,255,255,0.1);
+        padding: 8px 6px;
+        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+      }
+      #mm-scope-dbr-col .mm-dbr-heading {
+        display: block;
+        text-align: center;
+        width: 100%;
+        margin-bottom: 4px;
+      }
+      #mm-scope-dbr-col .mm-dbr-big {
+        text-align: center;
+        line-height: 1.1;
+        margin-top: 4px;
+        width: 100%;
+        display: block;
+        font-size: 28px !important;
+      }
+      #mm-scope-dbr-col .mm-dbr-unit {
+        display: block;
+        margin-top: 5px;
+        font-size: 16px;
+        line-height: 1.2;
+        color: #888;
+        text-align: center;
+        width: 100%;
+      }
+      #mm-scope-dbr-value {
+        transition: color 0.3s;
+      }
+    `;
+
+    let style = document.getElementById("metrics-scope-css-inline");
+    if (!style) {
+        style = document.createElement("style");
+        style.id = "metrics-scope-css-inline";
+        document.head.appendChild(style);
+    }
+    style.textContent = CUSTOM_CSS;
+
+    if (flex) flex.remove();
+    flex = document.createElement("div");
+    flex.id = "mm-scope-flex";
+    flex.style.display = (isCanvasVisible && activeCanvasMode === 5) ? "flex" : "none";
+    canvasContainer.appendChild(flex);
+
+    // ── left: meters column ──
+    const metersCol = document.createElement("div");
+    metersCol.id = "mm-scope-meters-col";
+    flex.appendChild(metersCol);
+
+    const metersInner = document.createElement("div");
+    metersInner.id = "mm-scope-meters-inner";
+    metersCol.appendChild(metersInner);
+
+    // ── centre: scope canvas ──
+    const scopeHost = document.createElement("div");
+    scopeHost.id = "main-scope-container";
+    flex.appendChild(scopeHost);
+
+    // ── right: dBr panel ──
+    const dbrCol = document.createElement("div");
+    dbrCol.style.paddingTop = "30px";
+    dbrCol.id = "mm-scope-dbr-col";
+    flex.appendChild(dbrCol);
+
+    const dbrHeading = document.createElement("h2");
+    dbrHeading.className = "signal-heading mm-dbr-heading";
+    dbrHeading.textContent = "POWER";
+    dbrHeading.style.fontSize = "25px";
+    dbrHeading.style.marginBottom = "10px";
+    dbrHeading.style.marginTop = "-6px";
+    dbrCol.appendChild(dbrHeading);
+
+    const dbrBig = document.createElement("div");
+    dbrBig.className = "text-big mm-dbr-big";
+    dbrBig.style.setProperty("font-size", "36px", "important");
+    dbrCol.appendChild(dbrBig);
+
+    const dbrValue = document.createElement("span");
+    dbrValue.id = "mm-scope-dbr-value";
+    dbrValue.textContent = "--.-";
+    dbrBig.appendChild(dbrValue);
+
+    const dbrUnit = document.createElement("div");
+    dbrUnit.className = "mm-dbr-unit";
+    dbrUnit.textContent = "dBr";
+    dbrUnit.style.setProperty("font-size", "18px", "important");
+    dbrCol.appendChild(dbrUnit);
+
+    function getDbrColor(v) {
+		if (v == null || !Number.isFinite(v)) return "";
+		if (v < 3)   return "";
+		if (v < 6.9) return MeterColorWarning;
+		return MeterColorDanger;
+	}
+
+    let dbrRafId = null;
+    function dbrRenderLoop() {
+      if (!flex.isConnected) { dbrRafId = null; return; }
+      const val = window.MetricsSharedMpxPowerDbr;
+      const text = (val == null || !Number.isFinite(val))
+        ? "--.-"
+        : `${val >= 0 ? "+" : ""}${val.toFixed(1)}`;
+      dbrValue.textContent = text;
+      dbrValue.style.color = getDbrColor(val);
+      dbrRafId = requestAnimationFrame(dbrRenderLoop);
+    }
+    dbrRafId = requestAnimationFrame(dbrRenderLoop);
+
+    // ── meters init ──
+    if (window.MetricsMeters && window.MetricsMeters.initMeters) {
+        setTimeout(() => {
+            window.MetricsMeters.initMeters(metersInner);
+            if (window.MetricsMeters.startAnimation) window.MetricsMeters.startAnimation();
+
+            const SCOPE_PREFIX = "mm-scope-";
+            const idsToPrefix = ["left-meter", "right-meter", "hf-meter", "stereo-pilot-meter", "rds-meter", "mpx-meter"];
+
+            idsToPrefix.forEach((id) => {
+                const el = metersInner.querySelector(`#${id}`);
+                if (el) {
+                    const wrapper = el.closest(".level-meter");
+                    if (wrapper) wrapper.id = SCOPE_PREFIX + id + "-wrapper";
+                    el.id = SCOPE_PREFIX + id;
+                    if (el.width === 0) el.width = 40;
+                    if (el.height === 0) el.height = 200;
+                }
+            });
+        }, 250);
+    }
+
+    // ── scope init ──
+    const ensureScope = (attempt = 0) => {
+        const scope = window.MetricsScope;
+        if (!scope || typeof scope.init !== "function") {
+            if (attempt < 25) return setTimeout(() => ensureScope(attempt + 1), 200);
+            return;
+        }
+        scopeHost.innerHTML = "";
+        const scopeInstance = scope.init("main-scope-container", {
+            instanceKey: "canvas5",
+            embedded: true,
+            useLegacyCss: false
+        });
+        const resizeFn = () => {
+            (scopeInstance?.resize || scope.resize)?.("main-scope-container");
+        };
+        window.mmTriggerResizeScope = resizeFn;
+        setTimeout(resizeFn, 0);
+        window.addEventListener("resize", () => setTimeout(resizeFn, 0));
+    };
+    ensureScope();
+}
+
   function replaceMainCanvasWithMpxComboIfRequired() {
     if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 2)) return;
 
     const canvasContainer = document.querySelector(".canvas-container.hide-phone");
     if (!canvasContainer) return;
 
-    if (document.getElementById("mm-mpx-combo-flex")) {
-      if (isCanvasVisible && activeCanvasMode === 2) {
-        document.getElementById("mm-mpx-combo-flex").style.display = 'flex';
+    const comboId = "mm-mpx-combo-flex";
+    let flex = document.getElementById(comboId);
+
+    if (!flex) {
+        mmLog("log", "[MM-DEBUG] Creating MPX Combo Layout (Static Scale)...");
+        const INTERNAL_HEIGHT = 160;
+        const METERS_COL_W = 180;
+
+const CUSTOM_CSS = `
+  #mm-mpx-combo-flex {
+    display: none;
+    align-items: stretch;
+    width: 100%;
+    height: ${INTERNAL_HEIGHT}px ! important;
+    min-height: ${INTERNAL_HEIGHT}px !important;
+    background:  linear-gradient(180deg, #071c33 0%, #041425 100%);
+    border: 1px solid rgba(255,255,255,0.45);
+    box-sizing: border-box;
+    transform-origin: top center;
+    position: relative;
+    z-index: 5;
+    overflow: hidden;
+    transform: translate(10px, -10px);
+    margin-bottom: -20px;
+  }
+  #mm-combo-meters-col { width: ${METERS_COL_W}px; min-width: ${METERS_COL_W}px; flex: 0 0 ${METERS_COL_W}px; top: 0px; display: flex; flex-direction: row; justify-content: space-evenly; align-items: stretch; padding: 10px 2px 2px 2px; box-sizing: border-box; border-right: 1px solid rgba(255,255,255,0.1); position: relative; z-index: 5; height: 100%; }
+  #mm-combo-analyzer-col { flex: 1 1 auto; min-width: 0; height:  100%; position: relative; overflow: hidden; padding: 0; margin:  0; z-index: 10; display: flex; flex-direction: column; }
+  #mm-combo-analyzer-container { width: 100% !important; height: 100% !important; flex: 1; border: none ! important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; overflow: hidden !important; position: relative; }
+  #mm-combo-analyzer-container canvas { width: 100% !important; height: 100% !important; border: none !important; outline: none !important; display: block !important; }
+  #mm-combo-meters-col .level-meter { margin:  -5px 1px; height: 100%; display: flex; flex-direction: column; justify-content: flex-start; position: relative; flex:  1; overflow: visible ! important; }
+  #mm-combo-meters-col .meter-top { display: flex ! important; flex-direction: row !important; width: 100%; height: 100%; position: relative; }
+  #mm-combo-meters-col .meter-scale { display: flex !important; flex-direction: column; justify-space-between; width: 30px !important; min-width: 30px !important; text-align: right !important; margin-top: 0px !important; margin-right: -7px !important; padding-bottom: 5px; font-size: 12px !important; line-height: 1 !important; color: rgba(255,255,255,0.7); z-index: 2; transform: scale(0.75); transform-origin: top; }
+  #mm-combo-meters-col .meter-wrapper { flex: 1; width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+  #mm-combo-meters-col .level-meter canvas { display: block ! important; visibility: visible !important; width: 100% !important; max-width: 30px ! important; height: auto !important; flex: 1 1 auto !important; margin-bottom: 0px !important; }
+  #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 6px !important; line-height: 1.0 !important; font-size: 10px !important; }
+  #mm-combo-meters-col .meter-bar .segment { border-bottom: 1px solid transparent !important; background-clip: padding-box !important; margin-bottom: 0 !important; box-sizing: border-box; }
+  #mm-combo-meters-inner .stereo-group, 
+  #mm-combo-meters-inner #mm-combo-left-meter-wrapper, 
+  #mm-combo-meters-inner #mm-combo-right-meter-wrapper, 
+  #mm-combo-meters-inner #mm-combo-hf-meter-wrapper, 
+  #mm-combo-meters-inner #eqHintWrapper, 
+  #mm-combo-meters-inner #eqHintText { display: none !important; }
+  #mm-mpx-combo-flex #volumeSlider, 
+  #mm-mpx-combo-flex [id*="volume"], 
+  #mm-mpx-combo-flex [class*="volume"] { display: none ! important; }
+`;
+        let style = document.getElementById("metrics-mpx-combo-css");
+        if (!style) { style = document.createElement("style"); style.id = "metrics-mpx-combo-css"; document.head.appendChild(style); }
+        style.textContent = CUSTOM_CSS;
+
+        flex = document.createElement("div");
+        flex.id = comboId;
+        flex.style.display = "none";
+        canvasContainer.appendChild(flex);
+
+        const leftCol = document.createElement("div");
+        leftCol.id = "mm-combo-meters-col";
+        flex.appendChild(leftCol);
+
+        const metersContainer = document.createElement("div");
+        metersContainer.id = "mm-combo-meters-inner";
+        metersContainer.style.display = "flex";
+        metersContainer.style.width = "100%";
+        metersContainer.style.height = "100%";
+        metersContainer.style.justifyContent = "space-around";
+        leftCol.appendChild(metersContainer);
+
+        const rightCol = document.createElement("div");
+        rightCol.id = "mm-combo-analyzer-col";
+        flex.appendChild(rightCol);
+
+        const analyzerContainer = document.createElement("div");
+        analyzerContainer.id = "mm-combo-analyzer-container";
+        rightCol.appendChild(analyzerContainer);
+
+if (window.MetricsMeters && window.MetricsMeters.initMeters) {
+  setTimeout(() => {
+    window.MetricsMeters.initMeters(metersContainer);
+    if (window.MetricsMeters.startAnimation) window.MetricsMeters.startAnimation();
+    
+    const COMBO_PREFIX = "mm-combo-";
+    const idsToPrefix = ["left-meter", "right-meter", "hf-meter", "stereo-pilot-meter", "rds-meter", "mpx-meter"];
+    
+    idsToPrefix.forEach((id) => {
+      const el = metersContainer.querySelector(`#${id}`);
+      if (el) {
+         const wrapper = el.closest(".level-meter");
+         if (wrapper) wrapper.id = COMBO_PREFIX + id + "-wrapper";
+         el.id = COMBO_PREFIX + id;
+         if (el.width === 0) el.width = 40;
+         if (el.height === 0) el.height = 200;
       }
-      return;
+    });
+  }, 250);
+}
     }
 
-    mmLog("log", "[MM-DEBUG] Creating MPX Combo Layout (Static Scale)...");
-
-    // Fixed Internal Height
-    const INTERNAL_HEIGHT = 160; 
-    const METERS_COL_W = 180;
-
- const CUSTOM_CSS = `
-      /* MAIN CONTAINER SETUP */
-      #mm-mpx-combo-flex {
-        display: none;
-        align-items: stretch;
-        width: 100%;
-        height: ${INTERNAL_HEIGHT}px !important;
-        min-height: ${INTERNAL_HEIGHT}px !important;
-        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
-        border: 1px solid rgba(255,255,255,0.45);
-        box-sizing: border-box;
-        transform-origin: top center;
-        position: relative;
-        z-index: 5;
-        overflow: hidden;
-
-        /* Static Transform: 10px right, 10px up */
-        transform: translate(10px, -10px);
-        margin-bottom: -20px; /* Compensate for the upward shift layout-wise if needed */
+    if (isCanvasVisible && activeCanvasMode === 2) {
+      flex.style.display = 'flex';
+      if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
+          void flex.offsetWidth;
+          window.MetricsAnalyzer.init("mm-combo-analyzer-container", { instanceKey: "combo-main", embedded: true, useLegacyCss: false });
+          setTimeout(() => { if (window.MetricsAnalyzer.resize) window.MetricsAnalyzer.resize("mm-combo-analyzer-container"); }, 50);
       }
-      
-      /* COLUMN FOR THE 3 METERS */
-      #mm-combo-meters-col { 
-        width: ${METERS_COL_W}px; 
-        min-width: ${METERS_COL_W}px; 
-        flex: 0 0 ${METERS_COL_W}px;
-        top: 0px; 
-        display: flex; 
-        flex-direction: row; 
-        justify-content: space-evenly; /* Even distribution */
-        align-items: stretch; /* Use full height */
-        padding: 10px 2px 2px 2px; /* Some padding on top */
-        box-sizing: border-box; 
-        border-right: 1px solid rgba(255,255,255,0.1); 
-        position: relative; 
-        z-index: 5; 
-        height: 100%;
-      }
-
-      /* ANALYZER RIGHT (unchanged) */
-      #mm-combo-analyzer-col { 
-        flex: 1 1 auto; 
-        min-width: 0;
-        height: 100%; 
-        position: relative; 
-        overflow: hidden; 
-        padding: 0; 
-        margin: 0; 
-        z-index: 10; 
-        display: flex;
-        flex-direction: column;
-      }
-
-      #mm-combo-analyzer-container { 
-        width: 100% !important; 
-        height: 100% !important; 
-        flex: 1;
-        border: none !important; 
-        margin: 0 !important; 
-        padding: 0 !important; 
-        box-shadow: none !important; 
-        overflow: hidden !important; 
-        position: relative;
-      }
-
-      #mm-combo-analyzer-container canvas { 
-        width: 100% !important; 
-        height: 100% !important; 
-        border: none !important; 
-        outline: none !important; 
-        display: block !important; 
-      }
-
-      /* --- METER DESIGN START --- */
-      
-      /* Container for ONE Meter (e.g. PILOT) */
-      #mm-combo-meters-col .level-meter { 
-        margin: -5px 1px; 
-        height: 100%; 
-        /* Important: Flexbox for vertical layout (Top area + Label bottom) */
-        display: flex; 
-        flex-direction: column; 
-        justify-content: flex-start;
-        position: relative;
-        flex: 1; /* Each meter gets equal space (approx 60px) */
-        overflow: visible !important;
-      }
-
-      /* Upper area: Contains Scale (left) and Bar+Value (right) */
-      #mm-combo-meters-col .meter-top {
-        display: flex !important;
-        flex-direction: row !important; /* Side by side! */
-        width: 100%;
-        height: 100%; /* Leave space for bottom label */
-        position: relative;
-      }
-
-      /* 1. Left Column: Scale (Numbers) */
-      #mm-combo-meters-col .meter-scale {
-        display: flex !important;
-        flex-direction: column;
-        justify-content: space-between; /* Distribute numbers evenly */
-        
-        width: 30px !important; /* Fixed narrow width */
-        min-width: 30px !important;
-        text-align: right !important;
-        
-        /* Upward shift as requested */
-        margin-top: 0px !important;
-        margin-right: -7px !important; 		
-        padding-bottom: 5px; /* Air at bottom */
-        
-        font-size: 12px !important;
-        line-height: 1 !important;
-        color: rgba(255,255,255,0.7);
-        z-index: 2;
-        
-        /* Scale adjustment requested: compress vertically to align 0 properly */
-        transform: scale(0.75);
-        transform-origin: top;
-      }
-
-      /* 2. Right Column: Wrapper for Bar and Current Value */
-      #mm-combo-meters-col .meter-wrapper { 
-        flex: 1; /* Takes remaining space */
-        width: 0; /* IMPORTANT: Prevent flex items from overflowing container */
-        display: flex; 
-        flex-direction: column; 
-        align-items: center; /* Center bar and value horizontally */
-        justify-content: flex-end; /* Bar grows from bottom */
-        height: 100%;
-        position: relative;
-      }
-
-      /* The actual Bar (Canvas) */
-      #mm-combo-meters-col .level-meter canvas { 
-        display: block !important; 
-        visibility: visible !important; 
-        /* Limit width to prevent overlapping scale */
-        width: 100% !important; 
-        max-width: 30px !important; /* Fix bar width for clean look */
-        height: auto !important; 
-        flex: 1 1 auto !important; /* Fills height */
-        margin-bottom: 0px !important;
-      } 
-	  
-	  #mm-combo-meters-col .label { display: block !important; opacity: 1 !important; visibility: visible !important; pointer-events: none !important; margin-top: 5px !important; line-height: 1.0 !important; font-size: 10px !important; }
-      
-      /* V1.8 FIX: Transparent gaps that survive zooming */
-      #mm-combo-meters-col .meter-bar .segment {
-        border-bottom: 1px solid transparent !important; /* The gap space */
-        background-clip: padding-box !important;         /* Cut color at border */
-        margin-bottom: 0 !important;                     /* No margin needed */
-        box-sizing: border-box;                          /* Height includes border */
-      }
-
-      /* HIDE UNUSED ELEMENTS */
-      #mm-combo-meters-inner .stereo-group, 
-      #mm-combo-meters-inner #left-meter-wrapper, 
-      #mm-combo-meters-inner #right-meter-wrapper, 
-      #mm-combo-meters-inner #hf-meter-wrapper, 
-      #mm-combo-meters-inner #eqHintWrapper, 
-      #mm-combo-meters-inner #eqHintText { 
-        display: none !important; 
-      }
-      
-      #mm-mpx-combo-flex #volumeSlider, 
-      #mm-mpx-combo-flex [id*="volume"], 
-      #mm-mpx-combo-flex [class*="volume"] { 
-        display: none !important; 
-      }
-    `;
-
-    let style = document.getElementById("metrics-mpx-combo-css");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "metrics-mpx-combo-css";
-      document.head.appendChild(style);
-    }
-    style.textContent = CUSTOM_CSS;
-
-    const flex = document.createElement("div");
-    flex.id = "mm-mpx-combo-flex";
-    if (isCanvasVisible && activeCanvasMode === 2) flex.style.display = "flex";
-    else flex.style.display = "none";
-    canvasContainer.appendChild(flex);
-
-    // --- DOM Structure creation ---
-    const leftCol = document.createElement("div");
-    leftCol.id = "mm-combo-meters-col";
-    flex.appendChild(leftCol);
-
-    const metersContainer = document.createElement("div");
-    metersContainer.id = "mm-combo-meters-inner";
-    metersContainer.style.display = "flex";
-    metersContainer.style.width = "100%";
-    metersContainer.style.height = "100%";
-    metersContainer.style.justifyContent = "space-around";
-    leftCol.appendChild(metersContainer);
-
-    const rightCol = document.createElement("div");
-    rightCol.id = "mm-combo-analyzer-col";
-    flex.appendChild(rightCol);
-
-    const analyzerContainer = document.createElement("div");
-    analyzerContainer.id = "mm-combo-analyzer-container";
-    rightCol.appendChild(analyzerContainer);
-
-    // --- 1. Analyzer Init ---
-    if (window.MetricsAnalyzer && typeof window.MetricsAnalyzer.init === "function") {
-      window.MetricsAnalyzer.init("mm-combo-analyzer-container", {
-        instanceKey: "combo-main",
-        embedded: true,
-        useLegacyCss: false
-      });
-
-      // Safe Resize
-      setTimeout(() => {
-        const wrap = document.getElementById("mm-combo-analyzer-container");
-        const canvas = wrap ? (wrap.querySelector("canvas") || document.querySelector("#mm-combo-analyzer-container canvas")) : null;
-
-        if (wrap && canvas) {
-            wrap.style.border = "none";
-            const safeResize = () => {
-                const width = wrap.clientWidth;
-                const height = wrap.clientHeight;
-                if (!width || width === 0) { window.requestAnimationFrame(safeResize); return; }
-                const dpr = window.devicePixelRatio || 1;
-                if (canvas.width !== Math.floor(width * dpr)) {
-                     canvas.width = Math.floor(width * dpr);
-                     canvas.height = Math.floor(height * dpr);
-                     const ctx = canvas.getContext("2d");
-                     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                     try {
-                        if (typeof Chart !== "undefined" && Chart.getChart) {
-                            const ch = Chart.getChart(canvas);
-                            if (ch) ch.resize();
-                        }
-                    } catch(e){}
-                }
-            };
-            window.requestAnimationFrame(safeResize);
-            const resizeObserver = new ResizeObserver(() => { window.requestAnimationFrame(safeResize); });
-            resizeObserver.observe(wrap);
-        } 
-      }, 200); 
-    }
-
-    // --- 2. Meters Init ---
-    if (window.MetricsMeters && window.MetricsMeters.initMeters) {
-      setTimeout(() => {
-        window.MetricsMeters.initMeters(metersContainer);
-        if (window.MetricsMeters.startAnimation) window.MetricsMeters.startAnimation(); 
-
-        const COMBO_PREFIX = "mm-combo-";
-        const idsToPrefix = ["left-meter", "right-meter", "hf-meter", "stereo-pilot-meter", "rds-meter", "mpx-meter"];
-        
-        idsToPrefix.forEach((id) => {
-          const el = metersContainer.querySelector(`#${id}`);
-          if (el) {
-             el.id = COMBO_PREFIX + id;
-             const wrapper = el.closest(".level-meter");
-             if (wrapper) wrapper.id = id + "-wrapper";
-             if (el.width === 0) el.width = 40;
-             if (el.height === 0) el.height = 200;
-          }
-        });
-
-      }, 250);
     }
   }
-  
+
   function autoEnableSpectrumWhenReady() {
     if (!EnableSpectrumOnLoad) return;
-
     mmLog('log', 'AutoEnableSpectrum: Start searching for button...');
-
     let attempts = 0;
-    const MAX_ATTEMPTS = 60; // 30 seconds (60 * 500ms)
+    const MAX_ATTEMPTS = 60;
 
     const interval = setInterval(() => {
       attempts++;
       const btn = document.getElementById("spectrum-graph-button");
-      
       const shouldLog = (attempts === 1 || attempts % 5 === 0);
 
       if (!btn) {
         if (shouldLog) mmLog('log', `AutoEnableSpectrum: Button not found yet (Attempt ${attempts}/${MAX_ATTEMPTS})`);
       } else {
-        // Button found. Check if already active.
         const isActive = btn.classList.contains("active") || btn.classList.contains("bg-color-4");
-
         if (isActive) {
            mmLog('log', `AutoEnableSpectrum: SUCCESS! Button is active. (Attempt ${attempts})`);
            clearInterval(interval);
            return;
         } else {
-           // Button exists but inactive. Click it.
-           // Note: Do NOT clear interval. Retry in next cycle if listener was missing.
            mmLog('log', `AutoEnableSpectrum: Button found (inactive). Sending CLICK... (Attempt ${attempts})`);
            btn.click();
         }
       }
 
-      if (attempts >= MAX_ATTEMPTS) {
-        mmLog('warn', 'AutoEnableSpectrum: Timeout! Button was not activated or not found.');
-        clearInterval(interval);
-      }
+      if (attempts >= MAX_ATTEMPTS) { mmLog('warn', 'AutoEnableSpectrum: Timeout! Button was not found or active.'); clearInterval(interval); }
     }, 500);
   }
-  
-// =========================================================
-// MPX DATA SOCKET DISPATCH
-// =========================================================
-(function installMpxDataListener() {
-
-  if (window.MetricsMonitor._mpxListenerInstalled) return;
-  window.MetricsMonitor._mpxListenerInstalled = true;
-
-  // Shared state (used by meters)
-  window.mpxPeakVal = 0;
-  window.pilotPeakVal = 0;
-  window.rdsPeakVal = 0;
-  window.noiseFloorVal = 0;
-  window.websocketRdsActive = false;
-
-  window.mpxDevPeakRawKHz = 0;
-  window.mpxDevPpmKHz = 0;
-  window.modPower_dBr = null;
-  window.devExceedPct = 0;
-
-  if (!window.dataPluginsWsPromise) {
-    mmLog("warn", "MPX listener: dataPluginsWsPromise not found");
-    return;
-  }
-
-  window.dataPluginsWsPromise.then((ws) => {
-    if (!ws) {
-      mmLog("error", "MPX listener: dataPluginsWs missing");
-      return;
-    }
-
-    ws.addEventListener("message", (evt) => {
-      let msg;
-      try {
-        msg = JSON.parse(evt.data);
-      } catch {
-        return;
-      }
-
-      if (!msg || msg.type !== "MPX") return;
-
-      // ---------------------------------------------------
-      // CRITICAL: Receive deviation in kHz from server
-      // ---------------------------------------------------
-      if (typeof msg.peak === "number") {
-        mpxPeakVal = msg.peak; 
-      }
-
-      // ---------------------------------------------------
-      // ITU / BS.412 metrics
-      // ---------------------------------------------------
-      if (typeof msg.devPeakRawKHz === "number") {
-        mpxDevPeakRawKHz = msg.devPeakRawKHz;
-      }
-      if (typeof msg.devPpmKHz === "number") {
-        mpxDevPpmKHz = msg.devPpmKHz;
-      }
-      if (typeof msg.modPower_dBr === "number") {
-        modPower_dBr = msg.modPower_dBr;
-      }
-      if (typeof msg.devExceedPct === "number") {
-        devExceedPct = msg.devExceedPct;
-      }
-
-      // ---------------------------------------------------
-      // Pilot / RDS / Noise
-      // ---------------------------------------------------
-      pilotPeakVal  = msg.pilot || 0;
-      rdsPeakVal    = msg.rds   || 0;
-      noiseFloorVal = msg.noise || noiseFloorVal;
-
-      websocketRdsActive = true;
-
-      // ---------------------------------------------------
-      // Trigger meter update
-      // ---------------------------------------------------
-      if (typeof updateMpxTotalFromSpectrum === "function") {
-        updateMpxTotalFromSpectrum();
-      }
-    });
-
-    mmLog("log", "MPX data listener installed");
-  });
-})();
-
-// =========================================================
-// SPECTRUM GRAPH BUTTON FIX
-// =========================================================
-(function fixSpectrumButtons() {
-    // CSS to force buttons to the top z-index when graph is active
-    const fixCss = `
-        /* Force higher z-index for Spectrum Graph buttons */
-        #sdr-graph-button-container .rectangular-spectrum-button,
-        #sdr-graph-button-container button {
-            z-index: 9999 !important; /* Top layer */
-        }
-        
-        /* If graph is in overlay mode (negative margins), adjust container */
-        
-        /* Specific fix for overlay position */
-        .canvas-container[style*="visible"] #sdr-graph-button-container {
-             top: 10px !important; 
-             position: absolute !important;
-             width: 100%;
-             pointer-events: none; /* Allow clicks through, except on buttons */
-        }
-
-        .canvas-container[style*="visible"] #sdr-graph-button-container button {
-             pointer-events: auto; /* Make buttons clickable again */
-        }
-    `;
-
-    const style = document.createElement('style');
-    style.id = "mm-spectrum-fix-css";
-    style.textContent = fixCss;
-    document.head.appendChild(style);
-
-    // Observer to check if Spectrum Plugin is active and needs class adjustment
-    const observer = new MutationObserver(() => {
-        const sdrGraph = document.getElementById('sdr-graph');
-        const btnContainer = document.getElementById('sdr-graph-button-container');
-        
-        if (sdrGraph && sdrGraph.style.display !== 'none' && btnContainer) {
-            // Ensure container is visible and has correct z-index when graph shows
-            btnContainer.style.zIndex = "1000";
-            btnContainer.style.display = "block";
-        }
-    });
-
-    // Observe body for spectrum plugin element insertion
-    observer.observe(document.body, { childList: true, subtree: true });
-})();
 
 })();

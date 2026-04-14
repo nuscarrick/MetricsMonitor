@@ -1,22 +1,24 @@
 # MetricsMonitor
 
-FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers and spectrum analyzer for FM audio, FM baseband and MPX signal.
+FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1348" height="662" alt="1d" src="https://github.com/user-attachments/assets/96b5cdd7-ba36-48c4-b206-0ed803d4171d" />
-<img width="1177" height="174" alt="image" src="https://github.com/user-attachments/assets/82e85238-e51d-4b99-bccf-e70245c5b85f" />
-<img width="1178" height="173" alt="image" src="https://github.com/user-attachments/assets/9d961dc7-fd15-4e52-88a8-6b6680d0cb27" />
+<img width="1201" height="837" alt="grafik" src="https://github.com/user-attachments/assets/733643c5-11f1-4bc4-8fba-da045c21f647" />
 
-## v2.0
 
-- Using our own program library for spectrum analysis and display calculation -> more resource-efficient and higher measurement accuracy
-- New scale variables for PILOT, MPX and RDS (see calibration)
-- Automatic detection of the MPX channel
-- Fixed issues with relative image paths
+
+## v2.7
+
+- RF and MP meter displays have been replaced by ACI and CCI in signal meter module 3. The calculation basis comes from https://github.com/R100DX/SignalGuard (Thanks to mateusz100)
+- Added a new graphical display of signal value, MP, ACI and CCI to the Canavas Signal Plot Display (Thanks to GOR for the template and inspiration)
+- The 5-band audiometer corrects the treatment of signals with different phases
+
+You can find the current manual for version 2.7 here:
+https://highpoint.fmdx.org/manuals/MetricsMonitor-Documentation.html
 
 ## Important note for this version: 
 
 To use the MPX switching option with an ESP32 TEF receiver, this firmware version must be installed:
-https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF6686_ESP32_Dev_Beta_%20v2.20.5.zip
+https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF6686_ESP32_Dev_Beta_%20v2.20.6.zip
 
 ## Installation notes
 
@@ -43,13 +45,18 @@ https://github.com/Highpoint2000/MetricsMonitor/raw/refs/heads/main/firmware/TEF
    - MeterPilotScale: Adjust this up/down (100/50er steps) until you reach approximately 7 kHz.
    - MeterMPXScale: Adjust this up/down (100/50er steps) until you reach approximately 75 kHz.
    - MeterRDSScale: Adjust this up/down (100/50er steps)until you reach approximately 2.0 kHz.	
-
-3. Fine-tuning (via Calibration):
+   
+   Now you can use the calibration tool to calculate the exact scale values ​​so that the calibration values ​​remain at 0 (Step 3 - Fine-tuning is therefore omitted!):
+   https://tef.noobish.eu/logos/MetricsMonitorCalibrationTool.html  
+   
+3. Alternatively: Manual fine-tuning:
 
    - MeterPilotCalibration Display: 7.2 kHz. Target: 6.7 kHz. -> MeterPilotCalibration: -0.5
-   - MeterMPXCalibration Display: 78 kHz MPX. Target: 75 kHz. -> MeterMPXCalibration: -3.0
+   - MeterMPXCalibration Display: 78.2 kHz MPX. Target: 78.0 kHz. -> MeterMPXCalibration: -0.2
    - MeterRDSCalibration Display: 2.5 kHz RDS. Target: 2.0 kHz. -> MeterRDSCalibration: -0.5
    
+   Note: The calibration variables should only be used for direct fine-tuning in the decimal range (0.x), as otherwise they will distort the measurement result. Ideally, they should be reset to 0 later using the Metrics Monitor Calibration Tool.
+
 
 ## Configuration options
 
@@ -58,9 +65,12 @@ The following variables can be changed in the metricsmonitor.json config file:
     /* Audio & MPX Hardware Settings */	
     "sampleRate": 48000,             //  Enter the supported sample rate of the input audio card here: 48000 for displaying the FM audio spectrum / 96000 for displaying the FM baseband and 192000 for the MPX spectrum. The default is 48000.
     "MPXmode": "off",                //  Configure the MPX behavior of the TEF receiver here: "off" = no MPX output / "on" = always MPX output / "auto" = MPX automatic switching (equalizer and signal meter module in stereo - PILOT/MPX/RDS meter module in mono - spectrum analyzer in mono)
+	"MPXChannel": "auto",            //  Set the fixed channel for the MPX signal here if necessary ("left" or "right", "auto" is default)
     "MPXStereoDecoder": "off",	     //  Set the switch to "on" if you are decoding the stereo signal from MPX with a stereo decoder. This will enable the optical mono/stereo indicator to function when MPXmode is set to "on". The default setting is "off".          
     "MPXInputCard": "",              //  Configure the sound input exclusive to MPX (e.g., for Linux: "plughw:CARD=Device" or Windows: "Microphone (HD USB Audio Device)")
-
+    "MPXTiltCalibration": 0,         //  Adjust the input slope of the sound card from -1000 µs to 1000 µs (default is 0)
+	"VisualDelayMs": 250,            //  Set the client-side delay in milliseconds for the analyzer, scope, and MPX display here so that it runs in sync with the audio playback (default is 250).
+	
     /* Calibration Offsets (Meters) */
     "MeterInputCalibration": 0,      //  Increase or decrease the value as needed to adjust the input for the MPX gauges (Pilot, MPX, RDS). The default value is 0. 
     "MeterPilotCalibration": 0,      //  Calibrate the +/- level value for the Pilot level indicator (default = 0)
@@ -68,32 +78,33 @@ The following variables can be changed in the metricsmonitor.json config file:
     "MeterRDSCalibration": 0,        //  Calibrate the +/- level value for the RDS level indicator (default = 0)
 
     /* Meter Scales */
-    "MeterPilotScale": 200,          // Scale factor for Pilot deviation (default is 200)
+    "MeterPilotScale": 400,          // Scale factor for Pilot deviation (default is 400)
     "MeterMPXScale": 100,            // Scale factor for MPX deviation (default is 100)
-    "MeterRDSScale": 650,            // Scale factor for RDS deviation (default is 650)
+    "MeterRDSScale": 750,            // Scale factor for RDS deviation (default is 750)
 
     /* FFT / Spectrum Settings */
 	"fftSize": 512,                  //  Change the frequency sampling rate for the spectrum display. The higher the value (e.g. 1024, 2048, 4096), the better the frequency resolution, but also the higher the CPU load. The default and minimum value is 512.
 
-    /* Spectrum Visuals */
+    /* Spectrum & Scope Visuals */
     "SpectrumInputCalibration": 0,   //  Increase or decrease the value as needed to adjust the input for the spectrum. The default value is 0. 
 	"SpectrumAttackLevel": 3,        //  Response rate of the spectrum display as the signal increases. The default value is 3.
     "SpectrumDecayLevel": 15;        //  This variable determines the number of frames from which a smoothed spectrum is averaged from the raw spectrum. The larger the value, the stronger the smoothing; the smaller the value, the faster and less pronounced the smoothing. The default is 15.
 	"SpectrumSendInterval": 30,      //  Change the sampling frequency of the audio signal. The higher the frame rate (FPS), the more frequent the sampling and the higher the CPU load. The default is 15.
     "SpectrumYOffset": -40,          //  Set the +/- level value for the analyzing curve offset (default = -40)
     "SpectrumYDynamics": 2,          //  Set the +/- level value for the analyzing curve dynamic (peak indication / default = 2)
+	"ScopeInputCalibration": 0,      //  Increase or decrease the value as needed to adjust the input for the scope. The default value is 0. 
 
     /* Meter Gains */
-	
 	"StereoBoost": 2,                //  If the audio signal is too weak, a gain factor for the audio display can be set here (2 - default).
     "AudioMeterBoost": 1,            //  If the audio signal is too weak, a gain factor for the equalizer display can be set here (1 - default).
 
     /* Layout & UI */
-	
-    "MODULE_SEQUENCE": "1,2,0,3,4"   //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,0,4" - default).
-	"CANVAS_SEQUENCE": "2,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
-    "LockVolumeSlider": true         //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
-	"EnableSpectrumOnLoad": false    //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
+    "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
+	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
+    "MultipathMode": 0,                //  Set to 1 if using a TEF radio (TEF Radio smooth) or 0 if using a TEF module (Raw MP Data). Based on the assumption TEF radio MP peaks around 40%.
+    "LockVolumeSlider": true,          //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
+	"EnableSpectrumOnLoad": false,     //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
+    "EnableAnalyzerAdminMode": false,  //  Set to true to restricts analyzer/oscilloscope display to administrators (default ist false).
 
     /* Colors & Peaks */
     "MeterColorSafe": "rgb(0, 255, 0)";       // Change the color here for the safe range of the meter displays. The default is "rgb(0, 255, 0)".
@@ -103,6 +114,16 @@ The following variables can be changed in the metricsmonitor.json config file:
     "PeakColorFixed": "rgb(251, 174, 38)";    // Define a custom color here for the highest peak display. The default is "rgb(251, 174, 38)".
 
 After making changes to the metricsmonitor.json script, a server restart is only necessary for selected settings; a browser reload may also be sufficient!
+
+
+## Module Displays (Values ​​for MODULE_SEQUENCE)
+<img width="1588" height="225" alt="grafik" src="https://github.com/user-attachments/assets/3c0f23e7-454d-4ef6-844e-9d93960e1e85" />
+
+## Canvas Displays (Values ​​for CANVAS_SEQUENCE)
+<img width="1637" height="304" alt="grafik" src="https://github.com/user-attachments/assets/71c88160-344c-4d65-be12-8a8dc74925d1" />
+<img width="1220" height="231" alt="grafik" src="https://github.com/user-attachments/assets/6404eff5-3acf-4c64-ae8f-7c3ce9175424" />
+<img width="1224" height="214" alt="grafik" src="https://github.com/user-attachments/assets/403f84d7-4046-40b0-b6db-e0746183c948" />
+
 
 ## MPX Equipment
 
@@ -126,40 +147,7 @@ You can test the plugin here:
 Option 1 - http://highpoint2000.selfhost.de:6080
 
 Option 3 - http://highpoint2000.selfhost.de:8080 
-
-## Display modes (Values ​​for MODULE_SEQUENCE)
-
-### Input: 48 kHz Mono/Stereo
-
-<img width="1431" height="263" alt="2a" src="https://github.com/user-attachments/assets/76a708f3-c7e4-4f07-8a12-61eaab0f3521" />
-
-    1 – MO/ST without PILOT/MPX/RDS    2 – only spectrum to 48 kHz       0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-  
-### Input: 48 kHz MPX
-
-<img width="1603" height="290" alt="2b" src="https://github.com/user-attachments/assets/7efff0ca-81cc-4cc2-a0a4-d449a04843f0" />
-
-
-    1 – Mono without PILOT/MPX/RDS   2 – spectrum to 48 kHz with PILOT    0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-
-### Input: 96 kHz MPX
-
-<img width="1456" height="260" alt="3a" src="https://github.com/user-attachments/assets/73e84447-d22d-4f30-8724-d65f56567b7e" />
-
-
-       1 – Mono without MPX/RDS     2 – spectrum to 38 kHz with PILOT     0 – MO/ST with Equalizer      3 – MO/ST with Signal strength
-
-### Input: 192 kHz MPX
-
-<img width="1448" height="266" alt="4a" src="https://github.com/user-attachments/assets/cb3801c3-ed30-4f76-b8f2-4da2e90436fb" />
-
-     1 – Mono with PILOT/MPX/RDS   2 – spectrum to 56 kHz with PILOT/RDS   0 – MO/ST with Equalizer     3 – MO/ST with Signal strength
-
-### Signal Plot
-
-<img width="255" height="190" alt="Signal" src="https://github.com/user-attachments/assets/b148cbe7-b904-42a8-b9ad-6f3a753703bc" />
-
-     4 - activate Signal Plot 
+           https://highpoint.fmtuner.org
 
 ## Important notes
 
@@ -170,9 +158,9 @@ Option 3 - http://highpoint2000.selfhost.de:8080
   0/3 = 48 kHz signal (mono or stereo) is sufficient.
   1 = Signal of at least 96 kHz is required for the pilot tone display; a 192 kHz signal is required for the MPX and RDS displays. For both sampling rates, the receiver must support MPX output (activate via the menu if necessary).
   2 = 48 kHz displays the FM audio spectrum up to 19 kHz, 96 kHz the FM baseband up to 38 kHz, and 192 kHz the MPX spectrum up to 56 kHz. For both sampling rates (96 and 192 kHz), the receiver must support MPX output (activate this via the menu or configuration if necessary).
-
 - The configuration file allows you to switch individual display modules on and off and define the click sequence. The various displays can also be calibrated there.
 - Press the CTRL key to select different zoom options in MPX + Signal analysis modes
+- Due to the high data rate (up to 10 Mbit/s) and CPU load, it is recommended to restrict the display of the MPX Spectrum (Analyzer) and the Oscilloscope to the administrator account -> "EnableAnalyzerAdminMode": true
 
 Compatibility with all hardware components and platforms cannot be guaranteed. The receiver's output volume, as well as the technical characteristics of the hardware components, affect the display behavior and must be taken into account!!!
 
@@ -185,7 +173,91 @@ If you have any questions, would like to report problems, or have suggestions fo
 <details>
 <summary>History</summary>
 
-## v1.5
+### v2.6
+
+- Added dBr power display to the Canvas Scope display (thanks to Bojcha for the code)
+- Added CRT monitor effect to the Scope Monitor
+- Removed ghost peak display from the VU meter
+- Fixed a bug when switching modules in the VU meter display with the Canvas Scope Monitor enabled
+
+### v2.5a
+
+- Peak display in the 5-band audiometer corrected for the "fixed" setting
+- Fixed a bug in the spectrum/scope display in the module display when Canvas was started
+- Revised scope update rate
+
+
+### v2.5
+
+- Numeric and meter display for multipath value built into signalmeter modul (code for calculation comes from the UIAddonPack plugin by AmateurAudioDude)
+- MultipathMode Variable added to adjust the multipath measurement value (see configuration options!)
+
+### v2.4b
+
+- Patch against spamming detection updated
+- 5-band audiometer and VU meter adjusted
+- Fixed memory overflow issue
+
+### v2.4a
+- New variable ScopeInputCalibration added for calibrating the oscilloscope (see configuration options!)
+- The frame rate of the oscilloscope was significantly increased
+- Bandwidth of the 5-band audiometer adjusted
+- MPXcapture optimized for Linux
+
+### v2.4
+- Vertical marker lines at 16, 22, 54 and 60 kHz were added to the analyzer
+- 5-band audio display calibrated and adjusted
+- VU meter calibrated and adjusted
+- Fixed duplicate tooltip display on multipath icon
+- RF level meter now matches module 3
+- Tilt correction improved (thanks to AmateurAudioDude for the code)
+- Variable built in for delaying the analyzer, scope, and MPX output (see Configuration options) -> necessary for client-side audio synchronization
+
+### v2.3d
+- Channel selection added for the MPX signal (left, right or auto)
+
+### v2.3c
+- Alignment of scale values ​​adjusted
+- Remove duplicate peak displays
+
+### v2.3b
+- Oscilloscope and spectrum analyzer treated separately for resource reasons -> reduction of CPU and network load
+
+### v2.3a
+- Access rights to MPXCapture under Linux are granted automatically
+- VU meter display now also starts with "MODULE_SEQUENCE": "1",
+- Frequency display at cursor line in spectrum corrected
+
+### v2.3
+- Oscilloscope now has its own Canvas and Module element (activated via "MODULE_SEQUENCE": "5" or "CANVAS_SEQUENCE": "5") -> Analyzer and Oscilloscope can now be displayed simultaneously
+- Maximum and minimum peak markers in the oscilloscope graph (line and area)
+- Added detection and insertion of the multipath icon (element from the UI add-on plugin) to the header bar
+- Fixed a false start issue with the audio display in the signal meter
+
+### v2.2
+- Improved Pilot, MPX, and RDS calculations
+- Enabled display of other signal patterns in the scope display
+- Refined tilt correction
+- Scaling adjustment
+- Expanded horizontal zoom in scope mode
+- Revised cursor alignment in analyzer mode
+- CPU/Network Optimization: Spectrum/Scope calculation is gated (only active when accessed via a browser)
+- New variable EnableAnalyzerAdminMode restricts analyzer/oscilloscope display to administrators
+
+### v2.1
+
+- Integration of an oscilloscope (click on MPX Spectrum title in the analyzer!)
+- New variable for adjusting the tilt at the sound card input (see configuration options!)
+- Sound card reconnect logic built in (Tnx to AmateurAudioDude)
+
+### v2.0
+
+- Using our own program library for spectrum analysis and display calculation -> more resource-efficient and higher measurement accuracy
+- New scale variables for PILOT, MPX and RDS (see calibration)
+- Automatic detection of the MPX channel
+- Fixed issues with relative image paths
+
+### v1.5
 
 - Improved PILOT/MPX/RDS detection
 - Corrected faulty spectrum display on smartphone screen

@@ -6,12 +6,10 @@
   box-sizing: border-box;
 }
 
-/* Verschiebt die Stereo-Gruppe (erstes Element), um den ganzen Block nach rechts zu rücken */
 .stereo-group {
-   margin-left: 10px; 
+   margin-left: 5px; 
 }
 
-/* Layout für das Signal-Panel */
 .signal-panel-layout {
   flex: 1;
   display: flex;
@@ -21,8 +19,8 @@
   background: rgba(255,255,255,0.01);
   border-radius: 10px;
   margin-left: 0px;
-  margin-right: -8px;
-  margin-top: 8px;
+  margin-right: -3px;
+  margin-top: 15px;
   margin-bottom: 0px; 
   max-width: 125px;
   width: 125px;
@@ -43,17 +41,27 @@
    color: #888;
 }
 
-.signal-meter-scale{
+.unit-label {
+  font-size: 10px;
+  text-align: center;
+  width: 100%;
+  color: #aaa;
+  margin-bottom: 3px;
+  height: 12px;
+  line-height: 12px;
+}
+
+.signal-meter-scale {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 160px;
+  height: 164px;
   font-size: 9px;
   color: #aaa;
   margin-right: 4px;
   text-align: right;
-  position: relative; /* Hinzugefügt */
-  top: 8px;           /* Hinzugefügt: Passen Sie diesen Wert bei Bedarf an */
+  position: relative;
+  top: 12px;
 }
 
 .meter-top {
@@ -79,7 +87,6 @@
   overflow: hidden;
   padding: 1px;
   position: relative;
-  margin-top: 8px; 
 }
 
 .segment {
@@ -96,25 +103,11 @@
   text-align: center;
   width: 100%;
   color: #fff;
-  margin-top: -1px; 
+  margin-top: 0px; 
 }
 
 .peak-flag {
   box-shadow: none !important;
   border: 0 !important;
   outline: none !important;
-}
-
-/* Werte-Anzeige über dem Balken */
-.value-display {
-  text-align: center;
-  font-size: 10px !important;
-  line-height: 12px;
-  height: 12px;
-  color: #ddd;
-  font-family: inherit;
-  margin-left: -1px;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  opacity: 0.3; 
 }

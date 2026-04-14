@@ -1,44 +1,51 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-header.js                        (V2.0)   //
+//  metricsmonitor-header.js                        (V2.7)   //
 //                                                           //
-//  by Highpoint               last update: 14.01.2026       //
+//  by Highpoint               last update: 09.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
+//  GOR and Bojcha                                           //
 //                                                           //
 //  https://github.com/Highpoint2000/metricsmonitor          //
 //                                                           //
 ///////////////////////////////////////////////////////////////
 
 (() => {
-const sampleRate = 48000;    // Do not touch - this value is automatically updated via the config file
-const MPXmode = "off";    // Do not touch - this value is automatically updated via the config file
+const sampleRate = 192000;    // Do not touch - this value is automatically updated via the config file
+const MPXmode = "auto";    // Do not touch - this value is automatically updated via the config file
 const MPXStereoDecoder = "off";    // Do not touch - this value is automatically updated via the config file
-const MPXInputCard = "";    // Do not touch - this value is automatically updated via the config file
-const MeterInputCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const MPXInputCard = "Mikrofon (HD USB Audio Device)";    // Do not touch - this value is automatically updated via the config file
+const MPXTiltCalibration = 0;    // Do not touch - this value is automatically updated via the config file
+const VisualDelayMs = 275;    // Do not touch - this value is automatically updated via the config file
+const MeterInputCalibration = -0.4;    // Do not touch - this value is automatically updated via the config file
 const MeterPilotCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterMPXCalibration = 0;    // Do not touch - this value is automatically updated via the config file
 const MeterRDSCalibration = 0;    // Do not touch - this value is automatically updated via the config file
-const MeterPilotScale = 200;    // Do not touch - this value is automatically updated via the config file
-const MeterRDSScale = 650;    // Do not touch - this value is automatically updated via the config file
-const fftSize = 512;    // Do not touch - this value is automatically updated via the config file
+const MeterPilotScale = 116.857176;    // Do not touch - this value is automatically updated via the config file
+const MeterRDSScale = 132.2072;    // Do not touch - this value is automatically updated via the config file
+const fftSize = 4096;    // Do not touch - this value is automatically updated via the config file
 const SpectrumAttackLevel = 3;    // Do not touch - this value is automatically updated via the config file
 const SpectrumDecayLevel = 15;    // Do not touch - this value is automatically updated via the config file
 const SpectrumSendInterval = 30;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYOffset = -40;    // Do not touch - this value is automatically updated via the config file
 const SpectrumYDynamics = 2;    // Do not touch - this value is automatically updated via the config file
-const StereoBoost = 2;    // Do not touch - this value is automatically updated via the config file
-const AudioMeterBoost = 1;    // Do not touch - this value is automatically updated via the config file
-const MODULE_SEQUENCE = [1,2,0,3,4];    // Do not touch - this value is automatically updated via the config file
-const CANVAS_SEQUENCE = [2,4];    // Do not touch - this value is automatically updated via the config file
+const ScopeInputCalibration = 4;    // Do not touch - this value is automatically updated via the config file
+const StereoBoost = 2.3;    // Do not touch - this value is automatically updated via the config file
+const AudioMeterBoost = 1.2;    // Do not touch - this value is automatically updated via the config file
+const MODULE_SEQUENCE = [3,0,1,2,5,4];    // Do not touch - this value is automatically updated via the config file
+const CANVAS_SEQUENCE = [2,5,4];    // Do not touch - this value is automatically updated via the config file
+const MultipathMode = 0;    // Do not touch - this value is automatically updated via the config file
 const LockVolumeSlider = true;    // Do not touch - this value is automatically updated via the config file
-const EnableSpectrumOnLoad = false;    // Do not touch - this value is automatically updated via the config file
+const EnableSpectrumOnLoad = true;    // Do not touch - this value is automatically updated via the config file
+const EnableAnalyzerAdminMode = false;    // Do not touch - this value is automatically updated via the config file
 const MeterColorSafe = "rgb(0, 255, 0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorWarning = "rgb(255, 255,0)";    // Do not touch - this value is automatically updated via the config file
 const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is automatically updated via the config file
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
+  const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
   ///////////////////////////////////////////////////////////////
 
@@ -105,8 +112,9 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
 
     // --- HF Level (Signal Strength) ---
     if (message.sig !== undefined) {
-      levels.hf = Math.round((message.sig - 7) * 10) / 10;
-      updateMeter('hf-meter', levels.hf);
+      if (window.MetricsMeters && typeof window.MetricsMeters.setHF === 'function') {
+        window.MetricsMeters.setHF(message.sig);
+      }
     }
 
     // --- PTY Label ---
@@ -241,31 +249,31 @@ const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is a
       }
     }
 
-// --- RDS Indicator ---
-if (message.rds !== undefined) {
-  const rdsOn = (message.rds === true || message.rds === 1);
+    // --- RDS Indicator ---
+    if (message.rds !== undefined) {
+      const rdsOn = (message.rds === true || message.rds === 1);
 
-  if (window.MetricsMeters && typeof window.MetricsMeters.setRdsStatus === 'function') {
-    window.MetricsMeters.setRdsStatus(rdsOn);
-  }
+      if (window.MetricsMeters && typeof window.MetricsMeters.setRdsStatus === 'function') {
+        window.MetricsMeters.setRdsStatus(rdsOn);
+      }
 
-  const rdsIcon = document.getElementById('rdsIcon');
-  setIconSrc(rdsIcon, rdsOn
-    ? 'js/plugins/MetricsMonitor/images/rds_on.png'
-    : 'js/plugins/MetricsMonitor/images/rds_off.png'
-  );
-  
-    const panel = document.getElementById('signalPanel');
-    if (panel) {
-      panel.style.setProperty(
-        'background-color',
-        rdsOn
-          ? 'var(--color-2-transparent)'
-          : 'var(--color-1-transparent)',
-        'important'
+      const rdsIcon = document.getElementById('rdsIcon');
+      setIconSrc(rdsIcon, rdsOn
+        ? 'js/plugins/MetricsMonitor/images/rds_on.png'
+        : 'js/plugins/MetricsMonitor/images/rds_off.png'
       );
+      
+      const panel = document.getElementById('signalPanel');
+      if (panel) {
+        panel.style.setProperty(
+          'background-color',
+          rdsOn
+            ? 'var(--color-2-transparent)'
+            : 'var(--color-1-transparent)',
+          'important'
+        );
+      }
     }
-}
 
     // --- TP Indicator ---
     if (message.tp !== undefined) {
@@ -377,44 +385,43 @@ if (message.rds !== undefined) {
     stereoImg.style.cursor = 'pointer';
     stereoImg.style.pointerEvents = 'auto'; 
 
-// Stereo Click Handler
-stereoImg.addEventListener('click', () => {
-    // Check lock state
-    if (isClickLocked && MPXStereoDecoder !== "on" && MPXmode !== "off") {
-        logInfo("Stereo icon click ignored: Button is locked via B2.");
-        return;
-    }
+    // Stereo Click Handler
+    stereoImg.addEventListener('click', () => {
+        // Check lock state
+        if (isClickLocked && MPXStereoDecoder !== "on" && MPXmode !== "off") {
+            logInfo("Stereo icon click ignored: Button is locked via B2.");
+            return;
+        }
 
-    if (TextSocket && TextSocket.readyState === WebSocket.OPEN) {
+        if (TextSocket && TextSocket.readyState === WebSocket.OPEN) {
 
-        if (MPXStereoDecoder === "on") {
-            // Local toggle logic for MPXStereoDecoder
-            if (b2Active) {
-                // Stereo -> Mono
-                TextSocket.send("B1");
-                b2Active = false; 
-                isClickLocked = false;
-                logInfo('Stereo icon clicked (MPXStereoDecoder=on, State: Stereo -> Switching to Mono). Sent: B1');
+            if (MPXStereoDecoder === "on") {
+                // Local toggle logic for MPXStereoDecoder
+                if (b2Active) {
+                    // Stereo -> Mono
+                    TextSocket.send("B1");
+                    b2Active = false; 
+                    isClickLocked = false;
+                    logInfo('Stereo icon clicked (MPXStereoDecoder=on, State: Stereo -> Switching to Mono). Sent: B1');
+                } else {
+                    // Mono -> Stereo
+                    TextSocket.send("B2");
+                    b2Active = true;
+                    isClickLocked = true;
+                    logInfo('Stereo icon clicked (MPXStereoDecoder=on, State: Mono -> Switching to Stereo). Sent: B2');
+                }
+
             } else {
-                // Mono -> Stereo
-                TextSocket.send("B2");
-                b2Active = true;
-                isClickLocked = true;
-                logInfo('Stereo icon clicked (MPXStereoDecoder=on, State: Mono -> Switching to Stereo). Sent: B2');
+                // Standard behavior
+                const cmd = currentIsForced ? "B0" : "B1";
+                TextSocket.send(cmd);
+                logInfo(`Stereo icon clicked. Sending command: ${cmd}`);
             }
 
         } else {
-            // Standard behavior
-            const cmd = currentIsForced ? "B0" : "B1";
-            TextSocket.send(cmd);
-            logInfo(`Stereo icon clicked. Sending command: ${cmd}`);
+            logError("Cannot send command, WebSocket is not open.");
         }
-
-    } else {
-        logError("Cannot send command, WebSocket is not open.");
-    }
-});
-
+    });
 
     // Initial state
     setIconSrc(stereoImg, 'js/plugins/MetricsMonitor/images/stereo_off.png');
@@ -443,6 +450,84 @@ stereoImg.addEventListener('click', () => {
       setIconSrc(img, off);
       iconsBar.appendChild(img);
     });
+
+    // --- Check for UI Add-on Pack Multipath Icon ---
+    const addonObserver = new MutationObserver(() => {
+
+        const multipath = iconsBar.querySelector('.multipath-container');
+        const isMultipathPresent = multipath !== null;
+
+        // List of elements to shift left
+        const targets = ['rdsIcon', 'taIcon', 'tpIcon', 'stereoIcon', 'ptyLabel'];
+
+        targets.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.marginLeft = isMultipathPresent ? '-4px' : '';
+                
+                // Z-Index und Position um sicher über allem zu liegen
+                if (isMultipathPresent) {
+                    el.style.position = 'relative';
+                    el.style.zIndex = '10';
+                } else {
+                    el.style.position = '';
+                    el.style.zIndex = '';
+                }
+            }
+        });
+
+        // 🔽 MULTIPATH TOOLTIP-ZAUBER-TRICK
+        if (multipath) {
+            multipath.style.transform = 'scale(0.85)';
+            multipath.style.cursor = 'pointer';
+
+            const cleanTooltipElements = (el) => {
+                // 1. Klasse 'tooltip' restlos entfernen
+                if (el.classList.contains('tooltip')) {
+                    el.classList.remove('tooltip');
+                }
+
+                // 2. data-tooltip Attribut in den internen jQuery Speicher schieben und aus dem HTML löschen!
+                if (el.hasAttribute('data-tooltip')) {
+                    if (typeof window.$ !== 'undefined') {
+                        // Der gute Add-On Tooltip holt sich die Daten aus diesem unsichtbaren Speicher.
+                        window.$(el).data('tooltip', el.getAttribute('data-tooltip'));
+                    }
+                    // Das Hauptsystem kann das Attribut jetzt nicht mehr finden -> der graue Fehler-Tooltip bleibt aus!
+                    el.removeAttribute('data-tooltip');
+                }
+            };
+
+            // Wende den Trick auf den Haupt-Container an
+            cleanTooltipElements(multipath);
+            
+            // Wende den Trick sicherheitshalber auch auf alle Child-Elemente an (wie z.B. overlay spans)
+            multipath.querySelectorAll('*').forEach(child => cleanTooltipElements(child));
+
+            // Entferne eventuelle 'title' Attribute
+            const stripNativeTitle = (el) => {
+                if (el.hasAttribute('title')) el.removeAttribute('title');
+            };
+            stripNativeTitle(multipath);
+            multipath.querySelectorAll('*').forEach(stripNativeTitle);
+
+            // Verhindere, dass externe Scripte das 'title'-Attribut nachladen
+            if (!multipath.dataset.tooltipObserverAttached) {
+                multipath.dataset.tooltipObserverAttached = 'true';
+                const attrObserver = new MutationObserver((mutationsList) => {
+                    mutationsList.forEach(m => {
+                        if (m.type === 'attributes' && m.attributeName === 'title') {
+                            if (m.target.hasAttribute('title')) m.target.removeAttribute('title');
+                        }
+                    });
+                });
+                attrObserver.observe(multipath, { attributes: true, subtree: true, attributeFilter: ['title'] });
+            }
+        }
+    });
+
+    // Start observing the icon bar container including subtrees to catch deep inserts
+    addonObserver.observe(iconsBar, { childList: true, subtree: true });
 
     setupTextSocket();
   }
