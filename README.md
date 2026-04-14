@@ -2,7 +2,8 @@
 
 FMDX Webserver Monitor plugin for displaying RDS and RF information, volume, equalizers, spectrum analyzer and oscilloscope for FM audio, FM baseband and MPX signal.
 
-<img width="1201" height="837" alt="grafik" src="https://github.com/user-attachments/assets/733643c5-11f1-4bc4-8fba-da045c21f647" />
+<img width="1211" height="842" alt="Screenshot 2026-04-14 233011" src="https://github.com/user-attachments/assets/ab4b3ca8-271c-4498-bb53-311e68477b1a" />
+
 
 
 ## v2.8
@@ -99,8 +100,8 @@ The following variables can be changed in the metricsmonitor.json config file:
     "AudioMeterBoost": 1,            //  If the audio signal is too weak, a gain factor for the equalizer display can be set here (1 - default).
 
     /* Layout & UI */
-    "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
-	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
+    "MODULE_SEQUENCE": "1,2,5,0,3,4",  //  Set the module display and order: 0 - Audio + Equalizer / 1 - Audio + PILOT/MPX/RDS / 2 - Spectrum Analyzer / 5 - Oscilloscope - Waveform / 3 - Audio + Signal Strength / 4 - Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "0,4" or "4" etc. ("1,2,5,0,3,4" - default).
+	"CANVAS_SEQUENCE": "2,5,4",        //  Set the module display and order: 2 - PILOT/MPX/RDS + Spectrum Analyzer / 5 - PILOT/MPX/RDS + Oscilloscope - Waveform / 4 - Signal Strength + Signal Analyzer. Single values ​​or comma-separated values ​​can be entered: "2,4", "4,2", "4" or "2". ("2,4" - default). An empty field hides the MPX/Signal button.
     "MultipathMode": 0,                //  Set to 1 if using a TEF radio (TEF Radio smooth) or 0 if using a TEF module (Raw MP Data). Based on the assumption TEF radio MP peaks around 40%.
     "LockVolumeSlider": true,          //  The locked volume control in the browser can be unlocked if needed, but this will affect the measured values ​​(default is true).
 	"EnableSpectrumOnLoad": false,     //  Set to true for automatic startup activation for the Spectrum Graph plugin (default is false).
@@ -122,7 +123,8 @@ After making changes to the metricsmonitor.json script, a server restart is only
 ## Canvas Displays (Values ​​for CANVAS_SEQUENCE)
 <img width="1637" height="304" alt="grafik" src="https://github.com/user-attachments/assets/71c88160-344c-4d65-be12-8a8dc74925d1" />
 <img width="1220" height="231" alt="grafik" src="https://github.com/user-attachments/assets/6404eff5-3acf-4c64-ae8f-7c3ce9175424" />
-<img width="1224" height="214" alt="grafik" src="https://github.com/user-attachments/assets/403f84d7-4046-40b0-b6db-e0746183c948" />
+<img width="1220" height="362" alt="Screenshot 2026-04-14 233424" src="https://github.com/user-attachments/assets/3bc8f892-7f50-4dae-b221-dded75f0871f" />
+
 
 
 ## MPX Equipment
