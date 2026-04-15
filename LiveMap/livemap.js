@@ -13,27 +13,27 @@
 ///  This plugin only works from web server version 1.3.5 !!!
 
 let ConsoleDebug = false; 			// Activate/Deactivate console output
-const FMLIST_OM_ID = '8032'; 			// If you want to use the logbook function, enter your OM ID here, e.g., FMLIST_OM_ID = '1234'
-const PSTRotatorFunctions = true; 	// If you use the PSTRotator plugin, you can activate the control here (default = false)
+const FMLIST_OM_ID = ''; 			// If you want to use the logbook function, enter your OM ID here, e.g., FMLIST_OM_ID = '1234'
+const PSTRotatorFunctions = false; 	// If you use the PSTRotator plugin, you can activate the control here (default = false)
 const updateInfo = true; 			// Enable or disable version check
 
 ////////////////////////////////////////////////////////////
 
-	// Custom console log function
-	function debugLog(...messages) {
-		if (ConsoleDebug) {
-			console.log(...messages);
-		}
-	}
+    // Custom console log function
+    function debugLog(...messages) {
+      if (ConsoleDebug) {
+        console.log(...messages);
+      }
+    }
 
-	// Define iframe size and position variables
-	let iframeWidth = parseInt(localStorage.getItem('iframeWidth')) || 600; 
-	let iframeHeight = parseInt(localStorage.getItem('iframeHeight')) || 650; 
-	let iframeLeft = parseInt(localStorage.getItem('iframeLeft')) || 10; 
-	let iframeTop = parseInt(localStorage.getItem('iframeTop')) || 10;
+    // Define iframe size and position variables
+    let iframeWidth = parseInt(localStorage.getItem('iframeWidth')) || 600; 
+    let iframeHeight = parseInt(localStorage.getItem('iframeHeight')) || 650; 
+    let iframeLeft = parseInt(localStorage.getItem('iframeLeft')) || 10; 
+    let iframeTop = parseInt(localStorage.getItem('iframeTop')) || 10;
 
     const plugin_version = '2.6d';
-	const corsAnywhereUrl = 'https://cors-proxy.de:13128/';
+	  const corsAnywhereUrl = 'https://cors-proxy.de:13128/';
     let lastPicode = null;
     let lastFreq = null;
     let lastStationId = null;
@@ -44,27 +44,27 @@ const updateInfo = true; 			// Enable or disable version check
     let stationListContainer;
     let foundPI;
     let foundID;
-	let latTX;
-	let lonTX;
-	let Latitude;
-	let Longitude;
-	let ws;
-	let isTuneAuthenticated;
-	let ipAddress;
+    let latTX;
+    let lonTX;
+    let Latitude;
+    let Longitude;
+    let ws;
+    let isTuneAuthenticated;
+    let ipAddress;
 	
     // Audio Player Variables
     let audioPlayer = null;
     let currentStreamId = null;
 
-	const plugin_path = 'https://raw.githubusercontent.com/highpoint2000/LiveMap/';
-	const plugin_JSfile = 'main/LiveMap/livemap.js'
-	const plugin_name = 'Livemap';
-	const PluginUpdateKey = `${plugin_name}_lastUpdateNotification`; // Unique key for localStorage
+    const plugin_path = 'https://raw.githubusercontent.com/highpoint2000/LiveMap/';
+    const plugin_JSfile = 'main/LiveMap/livemap.js'
+    const plugin_name = 'Livemap';
+    const PluginUpdateKey = `${plugin_name}_lastUpdateNotification`; // Unique key for localStorage
 	
     const currentURL = new URL(window.location.href);
     const WebserverURL = currentURL.hostname;
     const WebserverPath = currentURL.pathname.replace(/setup/g, '');
-	let WebserverPORT = currentURL.port || (currentURL.protocol === 'https:' ? '443' : '80'); // Default ports if not specified
+	  let WebserverPORT = currentURL.port || (currentURL.protocol === 'https:' ? '443' : '80'); // Default ports if not specified
 	
     const protocol = currentURL.protocol === 'https:' ? 'wss:' : 'ws:'; // Determine WebSocket protocol
     const WebsocketPORT = WebserverPORT; // Use the same port as HTTP/HTTPS
@@ -264,7 +264,7 @@ body {
         audioPlayer.src = url;
         audioPlayer.play().catch(e => {
             console.error('Audio play failed:', e);
-            sendToast('error', 'Play Stream', 'Audio playback failed', false, false);
+            sendToast('error', t('plugin.livemapPlugin.playStream'), t('plugin.livemapPlugin.audioPlaybackFailed'), false, false);
         });
     }
 
@@ -296,7 +296,7 @@ body {
 
         stopStream(); // Stops previous and resets UI
         
-        sendToast('info', 'Play Stream', `Loading stream for ${stationName}...`, false, false);
+        sendToast('info', t('plugin.livemapPlugin.playStream'), `${t('plugin.livemapPlugin.loadingStreamFor')} ${stationName}...`, false, false);
 
         try {
             const token = '924924';
@@ -309,7 +309,7 @@ body {
 
             const streams = await resp.json();
             if (!Array.isArray(streams) || streams.length === 0) {
-                sendToast('warning important', 'Play Stream', 'No stream URL found!', false, false);
+                sendToast('warning important', t('plugin.livemapPlugin.playStream'), t('plugin.livemapPlugin.noStreamURLFound'), false, false);
                 return;
             }
 
@@ -326,13 +326,13 @@ body {
                 iconElement.style.color = 'white'; // Set to white as requested
             }
 
-            sendToast('info important', 'Play Stream',
+            sendToast('info important', t('plugin.livemapPlugin.playStream'),
                 `<div style="max-width:150px;white-space:normal;word-break:break-all;">Playing: ${best.linkname}</div>`,
                 false, false);
 
         } catch (err) {
             console.error('Error loading stream:', err);
-            sendToast('error', 'Play Stream', 'Error loading stream data', false, false);
+            sendToast('error', t('plugin.livemapPlugin.playStream'), t('plugin.livemapPlugin.errorLoadingStreamData'), false, false);
         }
     }
 
@@ -536,8 +536,8 @@ initializeWrapperPosition();
     // Function to create the toggle button
     function createToggleButton() {
         const toggleButton = document.createElement('div');
-		toggleButton.classList.add('tooltip2'); // Klasse hinzufügen
-		toggleButton.setAttribute('data-tooltip', t('plugin.livemapPlugin.toggleStationList')); // Daten-Attribut setzen
+        toggleButton.classList.add('tooltip2'); // Klasse hinzufügen
+        toggleButton.setAttribute('data-tooltip', t('plugin.livemapPlugin.toggleStationList')); // Daten-Attribut setzen
         toggleButton.style.width = '10px';
         toggleButton.style.height = '10px';
         toggleButton.style.backgroundColor = 'red'; // Set the background color to red
@@ -1145,7 +1145,7 @@ function receiveGPS() {;
                     const stationData = {
                         station,
                         city: location.name,
-						pol: station.pol,
+						            pol: station.pol,
                         lat, 
                         lon,
                         pi: station.pi,
@@ -1187,8 +1187,8 @@ function receiveGPS() {;
         table.classList.add('bg-color-2');
         table.style.borderRadius = '15px';
         // table.style.margin = '0 auto';
-		table.style.marginBottom = '0px';
-		table.style.marginTop = '0px';
+        table.style.marginBottom = '0px';
+        table.style.marginTop = '0px';
         table.style.textAlign = 'left';
 
         filteredStations.forEach(({ station, city, lat, lon, pi, erp, id, itu }) => {
@@ -1282,8 +1282,8 @@ function receiveGPS() {;
 				if	(PSTRotatorFunctions) {
 
 					// @TODO need to translate from translation file
-                    // stationCell.title = `Turn the rotor to ${city}[${itu}]`;
-                    stationCell.title = `Rotoru ${city}[${itu}] yönüne çevirin`;
+          // stationCell.title = `Turn the rotor to ${city}[${itu}]`;
+          stationCell.title = `${t('plugin.livemapPlugin.turnTheRotorTo')} ${city}[${itu}]`;
 					stationCell.style.cursor = 'pointer';
 
 					stationCell.addEventListener('mouseover', () => {
@@ -1299,7 +1299,7 @@ function receiveGPS() {;
 					stationCell.addEventListener('click', () => {
 	
 						if (!isTuneAuthenticated) {
-							sendToast('warning', 'Livemap', t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
+							sendToast('warning', t('plugin.livemap'), t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
 						return;
 						}
 	
@@ -1308,7 +1308,7 @@ function receiveGPS() {;
     
 						// @TODO need to translate from translation file
 						// sendToast('info', 'Livemap', `Turn the rotor to ${azimuth} degrees`, false, false);
-						sendToast('info', 'Livemap', `Rotoru ${azimuth} dereceye çevirin`, false, false);
+						sendToast('info', t('plugin.livemap'), `${t('plugin.livemapPlugin.turnTheRotorTo')} ${azimuth} ${t('plugin.livemapPlugin.degrees')}`, false, false);
 						sendRotorPosition(azimuth);
 					});
 
@@ -1431,7 +1431,7 @@ function receiveGPS() {;
 								isOpenFMLIST = true;
 							}
 						} else {
-							sendToast('error', t('plugin.livemapPlugin.liveMap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
+							sendToast('error', t('plugin.livemap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
 						}
 					});
 					
@@ -1558,7 +1558,7 @@ function receiveGPS() {;
 							piCell.innerText = pi;
 						}
 						piCell.style.maxWidth = '70px';
-							piCell.style.width = '70px';
+            piCell.style.width = '70px';
 						piCell.style.paddingLeft = '5px';
 						piCell.style.paddingRight = '25px';
 						piCell.style.color = 'white';
@@ -1584,7 +1584,7 @@ function receiveGPS() {;
 
 							// @TODO need to translate from translation file
 							// stationCell.title = `Turn the rotor to ${city}[${itu}]`;
-                            stationCell.title = `Rotoru ${city}[${itu}] yönüne çevirin`;
+              stationCell.title = `${t('plugin.livemapPlugin.turnTheRotorTo')} ${city}[${itu}]`;
 							stationCell.style.cursor = 'pointer';
 
 							stationCell.addEventListener('mouseover', () => {
@@ -1600,7 +1600,7 @@ function receiveGPS() {;
 								stationCell.addEventListener('click', () => {
 	
 								if (!isTuneAuthenticated) {
-									sendToast('warning', 'Livemap', t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
+									sendToast('warning', t('plugin.livemap'), t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
 									return;
 								}
 	
@@ -1609,7 +1609,7 @@ function receiveGPS() {;
     									
 								// @TODO need to translate from translation file
 								// sendToast('info', 'Livemap', `Turn the rotor to ${azimuth} degrees`, false, false);
-								sendToast('info', 'Livemap', `Rotoru ${azimuth} dereceye çevirin`, false, false);
+								sendToast('info', t('plugin.livemap'), `${t('plugin.livemapPlugin.turnTheRotorTo')} ${azimuth} ${t('plugin.livemapPlugin.degrees')}`, false, false);
 								sendRotorPosition(azimuth);
 							});
 
@@ -1754,7 +1754,7 @@ function receiveGPS() {;
 										isOpenFMLIST = true;
 									}
 								} else {
-                                    sendToast('error', t('plugin.livemapPlugin.liveMap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
+                    sendToast('error', t('plugin.livemap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
 								}
 							});
 					
@@ -1817,22 +1817,22 @@ function receiveGPS() {;
 						playIcon.className = 'fas icon-hover-effect';
 						playIcon.style.cursor = 'pointer';
 
-                        // Check if this station is currently playing
-                        if (currentStreamId === id) {
-                            playIcon.classList.add('fa-square');
-                            playIcon.style.color = 'white';
-                        } else {
-                            playIcon.classList.add('fa-play');
-                        }
+            // Check if this station is currently playing
+            if (currentStreamId === id) {
+                playIcon.classList.add('fa-square');
+                playIcon.style.color = 'white';
+            } else {
+                playIcon.classList.add('fa-play');
+            }
 
 						streamLink.appendChild(playIcon);
-                        // Modified stream link behavior
+            // Modified stream link behavior
 						// streamLink.href = `javascript:window.open('https://fmscan.org/stream.php?i=${id}', 'newWindow', 'width=800,height=160');`;
-                        streamLink.href = '#';
-                        streamLink.onclick = (e) => {
-                            e.preventDefault();
-                            handleStreamClick(id, station.station, playIcon);
-                        };
+            streamLink.href = '#';
+            streamLink.onclick = (e) => {
+                e.preventDefault();
+                handleStreamClick(id, station.station, playIcon);
+            };
 
 						streamLink.style.color = 'green';
 						streamLink.style.textDecoration = 'none';
@@ -1907,7 +1907,7 @@ function receiveGPS() {;
 
 							// @TODO need to translate from translation file
 							// stationCell.title = `Turn the rotor to ${city}[${itu}]`;
-                            stationCell.title = `Rotoru ${city}[${itu}] yönüne çevirin`;
+              stationCell.title = `${t('plugin.livemapPlugin.turnTheRotorTo')} ${city}[${itu}]`;
 							stationCell.style.cursor = 'pointer';
 
 							stationCell.addEventListener('mouseover', () => {
@@ -1923,7 +1923,7 @@ function receiveGPS() {;
 								stationCell.addEventListener('click', () => {
 	
 								if (!isTuneAuthenticated) {
-									sendToast('warning', 'Livemap', t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
+									sendToast('warning', t('plugin.livemap'), t('plugin.livemapPlugin.mustBeAuthenticated'), false, false);
 									return;
 								}
 	
@@ -1932,7 +1932,7 @@ function receiveGPS() {;
     
 								// @TODO need to translate from translation file
 								// sendToast('info', 'Livemap', `Turn the rotor to ${azimuth} degrees`, false, false);
-								sendToast('info', 'Livemap', `Rotoru ${azimuth} dereceye çevirin`, false, false);
+								sendToast('info', t('plugin.livemap'), `${t('plugin.livemapPlugin.turnTheRotorTo')} ${azimuth} ${t('plugin.livemapPlugin.degrees')}`, false, false);
 								sendRotorPosition(azimuth);
 							});
 
@@ -2077,7 +2077,7 @@ function receiveGPS() {;
 										isOpenFMLIST = true;
 									}
 								} else {
-                                    sendToast('error', t('plugin.livemapPlugin.liveMap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
+                    sendToast('error', t('plugin.livemap'), t('plugin.livemapPlugin.isNotCompatibleDatabase'), false, false);
 								}
 							});
 					
