@@ -752,7 +752,8 @@ initializeWrapperPosition();
             </label>
         `;
 
-        footer.innerHTML = radioButtonsHTML;
+        // TODO: Current our API `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=${picode}&pos=${LAT},${LON}  is not support return json data, so we will skip the API request and return.
+        // footer.innerHTML = radioButtonsHTML;
 
         const radioButtons = footer.querySelectorAll('input[type="radio"]');
         radioButtons.forEach(radio => {
@@ -788,8 +789,9 @@ initializeWrapperPosition();
 
         toggleswitchTXPOS.appendChild(input);
         toggleswitchTXPOS.appendChild(slider);
-        toggleswitchTXPOSContainer.appendChild(toggleswitchTXPOS);
-        toggleswitchTXPOSContainer.appendChild(toggleswitchTXPOSLabel);
+        // TODO: Current our API `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=${picode}&pos=${LAT},${LON}  is not support return json data, so we will skip the API request and return.
+        // toggleswitchTXPOSContainer.appendChild(toggleswitchTXPOS);
+        // toggleswitchTXPOSContainer.appendChild(toggleswitchTXPOSLabel);
         footer.appendChild(toggleswitchTXPOSContainer);
         toggleswitchTXPOS.classList.add('disabled'); 
 		
@@ -914,6 +916,10 @@ async function fetchAndCacheStationData(freq, radius, picode, txposLat, txposLon
                 debugLog('Cache expired, fetching new data...');
             }
         }
+
+        // TODO: Current our API `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=${picode}&pos=${LAT},${LON}  is not support return json data, so we will skip the API request and return.
+        debugLog('Skipping API request and returning...');
+        return;
 
         // If no cached data or data is expired, make the API request
         if (txposswitchTXPOS && txposswitchTXPOS.checked) {
@@ -2176,9 +2182,14 @@ function receiveGPS() {;
         }
 
         // If no cache found, fetch data from the API
-        const response = await fetch(`${corsAnywhereUrl}https://maps.fmdx.org/api/?freq=${freq}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+        const response = await fetch(`${corsAnywhereUrl}https://maps.fmdx.org/api/?freq=${freq}`)
+          .catch(error => {
+              return null;
+          });
+        if (!response || !response.ok) {
+            debugLog('Error fetching data from maps.fmdx.org API:', response ? `Status: ${response.status}` : 'No response');
+            // throw new Error(`HTTP error! Status: ${response.status}`);
+            return { foundPI: false, foundID: false, coordinates: null };
         }
         const data = await response.json();
 
@@ -2269,14 +2280,18 @@ function receiveGPS() {;
         }
         
         let url;
-        if (stationid) {
-            url = `https://maps.fmdx.org/#qth=${LAT},${LON}&id=${stationid}&findId=*`;
-        } else if (picode !== '?' && foundPI) {
-            url = `https://maps.fmdx.org/#qth=${LAT},${LON}&freq=${freq}&findPi=${picode}`; 
+        // if (stationid) {
+        //     url = `https://maps.fmdx.org/#qth=${LAT},${LON}&id=${stationid}&findId=*`;
+        // } else
+        if (picode !== '?' && foundPI) {
+            // url = `https://maps.fmdx.org/#qth=${LAT},${LON}&freq=${freq}&findPi=${picode}`;
+            url = `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=${picode}&pos=${LAT},${LON}`;
         } else if (radius === 'none') {
-            url = `https://maps.fmdx.org/#lat=${txposLat}&lon=${txposLon}&freq=${freq}`;
+            // url = `https://maps.fmdx.org/#lat=${txposLat}&lon=${txposLon}&freq=${freq}`;
+            url = `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=FMSCANCOM&pos=${txposLat},${txposLon}`;
         } else {
-            url = `https://maps.fmdx.org/#lat=${txposLat}&lon=${txposLon}&freq=${freq}&r=${radius}`;
+            // url = `https://maps.fmdx.org/#lat=${txposLat}&lon=${txposLon}&freq=${freq}&r=${radius}`;
+            url = `https://api.fmlist.org/fmscan.com/fxmap.php?fx=${freq}&pi=FMSCANCOM&pos=${txposLat},${txposLon}&r=${radius}`;
         }
 
         const uniqueUrl = `${url}&t=${new Date().getTime()}`;
