@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-analyzer.js                      (V2.6)   //
+//  metricsmonitor-analyzer.js                      (V2.8)   //
 //                                                           //
-//  by Highpoint               last update: 27.03.2026       //
+//  by Highpoint               last update: 14.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -46,7 +46,6 @@ const MeterColorDanger = "rgb(255, 0, 0)";    // Do not touch - this value is au
 const PeakMode = "dynamic";    // Do not touch - this value is automatically updated via the config file
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 
-
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
 // Default mode is Spectrum only (oscilloscope moved to metricsmonitor-scope.js).
@@ -76,8 +75,6 @@ const MpxHub = (() => {
         try { msg = JSON.parse(evt.data); } catch { return; }
         if (!msg || typeof msg !== "object" || msg.type !== "MPX") return;
 		
-		// console.log(msg); 
-
         // Pass the entire message (spectrum only used here)
         listeners.forEach(fn => {
           try { fn(msg); } catch (e) { /* ignore */ }
@@ -164,7 +161,6 @@ let __mmAnalyzerSeq = 0;
 const __instances = new Map();
 
 // --- GLOBAL Heartbeat Manager ---
-// Only runs if at least one instance exists.
 let _heartbeatInterval = null;
 
 function checkHeartbeatStatus() {
@@ -221,8 +217,8 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   modeLabel.title = t('plugin.metricsMonitor.spectrumView');
   modeLabel.style.cssText = `
     position: absolute;
-    bottom: 15px;
-    left: 8px;
+    bottom: ${embedded ? '15px' : '6px'};
+    left: 42px;
     color: rgba(255, 255, 255, 0.85);
     font-family: Arial, sans-serif;
     font-size: 12px;
@@ -502,8 +498,9 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
   }
 
   function drawMagnifierIcon() {
-    const x = canvas.clientWidth / 2;
-    const y = canvas.clientHeight - 13;
+    const shiftX = embedded ? 0 : 35; 
+    const x = (canvas.clientWidth / 2) + shiftX;
+    const y = canvas.clientHeight - 13; 
     magnifierArea = { x: x - 10, y: y - 10, width: 20, height: 16 };
     const color = "rgba(143, 234, 255, 0.8)";
     ctx.save();
@@ -622,29 +619,135 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
 
     dbMarkers.forEach(v => {
       if (v < visibleDbMin || v > visibleDbMax) return;
+
       const norm = (v - range.min) / (range.max - range.min);
       const y = TOP_MARGIN + (1 - norm) * usableHeight * Y_STRETCH;
+
       if (y >= TOP_MARGIN && y <= logicalHeight - BOTTOM_MARGIN) {
         ctx.strokeStyle = "rgba(255,255,255,0.12)";
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(logicalWidth, y);
         ctx.stroke();
+
+        if (v === 0) {
+          ctx.fillStyle = "rgba(255,255,255,0.75)";
+        } else {
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+        }
+
         ctx.textAlign = "right";
         ctx.fillText(`${v}`, OFFSET_X - 6, y + 10 + LABEL_Y_OFFSET);
       }
     });
   }
 
-  function drawMpxSpectrumTrace() {
-    if (!mpxSpectrum.length) return;
-    const range = getDisplayRange();
+  function drawMpxSpectrumFill() {
+    if (!mpxSpectrum || mpxSpectrum.length === 0) return;
 
+    const range = getDisplayRange();
     const logicalWidth = canvas.clientWidth;
     const logicalHeight = canvas.clientHeight;
-
     const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
     const usableWidth = logicalWidth - OFFSET_X;
+    const bottomY = logicalHeight - BOTTOM_MARGIN;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, logicalWidth, logicalHeight);
+    ctx.clip();
+
+    ctx.beginPath();
+
+    if (zoomLevel > 1) {
+      const totalBins = mpxSpectrum.length;
+      const startBin = freqToBin(visibleStart, totalBins);
+      const endBin = freqToBin(visibleEnd, totalBins);
+
+      let firstX = null;
+      let lastX = null;
+
+      for (let i = startBin; i <= endBin; i++) {
+        const binFreq = binToFreq(i, totalBins);
+        const normalizedX = (binFreq - visibleStart) / (visibleEnd - visibleStart);
+        const x = OFFSET_X + normalizedX * usableWidth;
+
+        let rawVal = mpxSpectrum[i];
+        let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
+        val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
+
+        if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
+        if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
+        const norm = (val - range.min) / (range.max - range.min);
+        const y = TOP_MARGIN + (1 - norm) * usableHeight * Y_STRETCH;
+
+        if (firstX === null) {
+          firstX = x;
+          ctx.moveTo(x, bottomY);
+          ctx.lineTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+
+        lastX = x;
+      }
+
+      if (lastX !== null) {
+        ctx.lineTo(lastX, bottomY);
+        ctx.closePath();
+      }
+
+    } else {
+      const horizontalScale = zoomLevel;
+      const usableWidthScale = (logicalWidth - OFFSET_X) * CURVE_X_SCALE;
+      const leftStart = OFFSET_X;
+
+      ctx.moveTo(leftStart, bottomY);
+
+      for (let i = 0; i < mpxSpectrum.length; i++) {
+        let rawVal = mpxSpectrum[i];
+        let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
+        val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
+
+        if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
+        if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
+        const norm = (val - range.min) / (range.max - range.min);
+        const y = TOP_MARGIN + (1 - norm) * usableHeight * Y_STRETCH;
+
+        const x = leftStart + ((i / (mpxSpectrum.length - 1)) * usableWidthScale * CURVE_X_STRETCH) * horizontalScale;
+        ctx.lineTo(x, y);
+      }
+
+      const lastX = leftStart + usableWidthScale * CURVE_X_STRETCH * horizontalScale;
+      ctx.lineTo(lastX, bottomY);
+      ctx.closePath();
+    }
+
+    const fillGrad = ctx.createLinearGradient(0, TOP_MARGIN, 0, bottomY);
+    fillGrad.addColorStop(0, "rgba(160, 245, 255, 0.4)");
+    fillGrad.addColorStop(0.5, "rgba(80, 140, 200, 0.4)");
+    fillGrad.addColorStop(1, "rgba(0, 30, 63, 0.5)");
+
+    ctx.fillStyle = fillGrad;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMpxSpectrumTrace() {
+    if (!mpxSpectrum || mpxSpectrum.length === 0) return;
+
+    const range = getDisplayRange();
+    const logicalWidth = canvas.clientWidth;
+    const logicalHeight = canvas.clientHeight;
+    const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
+    const usableWidth = logicalWidth - OFFSET_X;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, logicalWidth, logicalHeight);
+    ctx.clip();
 
     ctx.beginPath();
     ctx.strokeStyle = "#8feaff";
@@ -670,8 +773,12 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
         const norm = (val - range.min) / (range.max - range.min);
         const y = TOP_MARGIN + (1 - norm) * usableHeight * Y_STRETCH;
 
-        if (firstPoint) { ctx.moveTo(x, y); firstPoint = false; }
-        else ctx.lineTo(x, y);
+        if (firstPoint) {
+          ctx.moveTo(x, y);
+          firstPoint = false;
+        } else {
+          ctx.lineTo(x, y);
+        }
       }
     } else {
       const horizontalScale = zoomLevel;
@@ -683,112 +790,89 @@ function createAnalyzerInstance(containerId = "level-meter-container", options =
         val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
         if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
         if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
         const norm = (val - range.min) / (range.max - range.min);
         const y = TOP_MARGIN + (1 - norm) * usableHeight * Y_STRETCH;
         const x = leftStart + ((i / (mpxSpectrum.length - 1)) * usableWidthScale * CURVE_X_STRETCH) * horizontalScale;
+
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
     }
 
     ctx.stroke();
+    ctx.restore();
   }
 
-function drawHoverCursor() {
-  if (hoverX === null || isDragging) return;
-  if (hoverX < OFFSET_X) return;
+  function drawHoverCursor() {
+    if (hoverX === null || isDragging) return;
+    if (hoverX < OFFSET_X) return;
 
-  const logicalWidth = canvas.clientWidth;
-  
-  // Define width used for calculation. 
-  // Trace uses OFFSET_X, Grid uses GRID_X_OFFSET. 
-  // We use OFFSET_X to align with the trace start.
-  const graphWidth = logicalWidth - OFFSET_X;
+    const logicalWidth = canvas.clientWidth;
+    const graphWidth = logicalWidth - OFFSET_X;
 
-  if (!mpxSpectrum.length) return;
-  const totalBins = mpxSpectrum.length;
+    if (!mpxSpectrum.length) return;
+    const totalBins = mpxSpectrum.length;
 
-  let freqHz = 0;
-  let bin = 0;
+    let freqHz = 0;
+    let bin = 0;
 
-  if (zoomLevel > 1.0) {
-    // ------------------------------------------
-    // ZOOM MODE (> 1.0)
-    // ------------------------------------------
-    const pct = (hoverX - OFFSET_X) / graphWidth;
-    freqHz = visibleStart + pct * (visibleEnd - visibleStart);
+    if (zoomLevel > 1.0) {
+      const pct = (hoverX - OFFSET_X) / graphWidth;
+      freqHz = visibleStart + pct * (visibleEnd - visibleStart);
 
-    if (freqHz < 0 || freqHz > MPX_FMAX_HZ) return;
-    bin = freqToBin(freqHz, totalBins);
-    
-  } else {
-    // ------------------------------------------
-    // STANDARD MODE (Zoom 1.0)
-    // ------------------------------------------
-    // 1. Calculate Frequency directly from screen position (Visual Match)
-    // This ensures 38k on screen equals 38k in the tooltip.
-    // The screen covers 0 Hz to (MPX_FMAX_HZ * LABEL_CURVE_X_SCALE) linearly.
-    
-    // Fraction of the screen width (0.0 to 1.0)
-    const screenFraction = (hoverX - OFFSET_X) / graphWidth;
-    
-    // Map screen fraction to the visual frequency range
-    const maxVisualFreq = MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
-    freqHz = screenFraction * maxVisualFreq;
+      if (freqHz < 0 || freqHz > MPX_FMAX_HZ) return;
+      bin = freqToBin(freqHz, totalBins);
+      
+    } else {
+      const screenFraction = (hoverX - OFFSET_X) / graphWidth;
+      const maxVisualFreq = MPX_FMAX_HZ * LABEL_CURVE_X_SCALE;
+      freqHz = screenFraction * maxVisualFreq;
 
-    // 2. Calculate the corresponding Bin (Data Match)
-    // The trace is drawn with X = left + (bin/total) * width * STRETCH.
-    // So: bin/total = (X - left) / (width * STRETCH) = screenFraction / STRETCH.
-    
-    const binFraction = screenFraction / (CURVE_X_STRETCH * CURVE_X_SCALE);
-    bin = Math.round(binFraction * (totalBins - 1));
-    
-    // Clamp bin to valid range
-    bin = Math.max(0, Math.min(totalBins - 1, bin));
+      const binFraction = screenFraction / (CURVE_X_STRETCH * CURVE_X_SCALE);
+      bin = Math.round(binFraction * (totalBins - 1));
+      
+      bin = Math.max(0, Math.min(totalBins - 1, bin));
+    }
+
+    if (bin < 0 || bin >= totalBins) return;
+
+    let rawVal = mpxSpectrum[bin];
+    let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
+    val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
+
+    if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
+    if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
+
+    const range = getDisplayRange();
+    const logicalHeight = canvas.clientHeight;
+    const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
+
+    const normY = (val - range.min) / (range.max - range.min);
+    const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
+
+    ctx.beginPath();
+    ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "12px Arial";
+    ctx.textAlign = "center";
+
+    const freqLabel =
+      freqHz >= 1000 ? (freqHz / 1000).toFixed(1) + " kHz" : Math.round(freqHz) + " Hz";
+    const dbLabel = val.toFixed(1) + " dB";
+
+    let labelX = hoverX;
+    if (labelX < 60) labelX = 60;
+    if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
+
+    ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
   }
-
-  if (bin < 0 || bin >= totalBins) return;
-
-  // Get dB value from spectrum data
-  let rawVal = mpxSpectrum[bin];
-  let val = (rawVal * CURVE_GAIN) + CURVE_Y_OFFSET_DB;
-  val = MPX_DB_MIN_DEFAULT + (val - MPX_DB_MIN_DEFAULT) * CURVE_VERTICAL_DYNAMICS;
-
-  if (val < MPX_DB_MIN_DEFAULT) val = MPX_DB_MIN_DEFAULT;
-  if (val > MPX_DB_MAX_DEFAULT) val = MPX_DB_MAX_DEFAULT;
-
-  const range = getDisplayRange();
-  const logicalHeight = canvas.clientHeight;
-  const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
-
-  const normY = (val - range.min) / (range.max - range.min);
-  const screenY = TOP_MARGIN + (1 - normY) * usableHeight * Y_STRETCH;
-
-  // Draw cursor circle
-  ctx.beginPath();
-  ctx.arc(hoverX, screenY, 4, 0, 2 * Math.PI);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(0,0,0,0.5)";
-  ctx.stroke();
-
-  // Draw frequency and dB label
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "12px Arial";
-  ctx.textAlign = "center";
-
-  const freqLabel =
-    freqHz >= 1000 ? (freqHz / 1000).toFixed(1) + " kHz" : Math.round(freqHz) + " Hz";
-  const dbLabel = val.toFixed(1) + " dB";
-
-  // Ensure label stays within canvas bounds
-  let labelX = hoverX;
-  if (labelX < 60) labelX = 60;
-  if (labelX > logicalWidth - 60) labelX = logicalWidth - 60;
-
-  ctx.fillText(`${freqLabel} (${dbLabel})`, labelX, screenY - 10);
-}
 
   function drawMpxSpectrum() {
     if (!ctx || !canvas) return;
@@ -802,6 +886,7 @@ function drawHoverCursor() {
     drawMpxGrid();
 
     if (mpxSpectrum.length > 0) {
+        drawMpxSpectrumFill();
         drawMpxSpectrumTrace();
         drawHoverCursor();
     } else {
@@ -820,10 +905,14 @@ function drawHoverCursor() {
       else if (zoomLevel !== 1.0) infoText = `${zoomLevel.toFixed(1)}x`;
       else infoText = `Y:${zoomLevelY.toFixed(1)}x`;
 
+      const shiftX = embedded ? 0 : 35; 
+      const x = (logicalWidth / 2) + shiftX;
+      const y = logicalHeight - 10;
+
       ctx.fillStyle = "rgba(143, 234, 255, 0.8)";
       ctx.font = "11px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(infoText, logicalWidth / 2, logicalHeight - 10);
+      ctx.fillText(infoText, x, y);
     } else {
         drawMagnifierIcon();
     }

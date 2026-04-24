@@ -1,8 +1,8 @@
 /////////////////////////////////////////////////////////////////
 //                                                             //
-//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.6)    //
+//  METRICSMONITOR CLIENT SCRIPT FOR FM-DX-WEBSERVER (V2.8)    //
 //                                                             //
-//  by Highpoint               last update: 27.03.2026         //
+//  by Highpoint               last update: 14.04.2026         //
 //                                                             //
 //  Thanks for support by                                      //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude        //
@@ -47,7 +47,7 @@ const PeakMode = "dynamic";    // Do not touch - this value is automatically upd
 const PeakColorFixed = "rgb(251, 174, 38)";    // Do not touch - this value is automatically updated via the config file
 const MeterTiltCalibration = -900;    // Do not touch - this value is automatically updated via the config file
 
-  const plugin_version = "2.6";
+  const plugin_version = "2.7";
   const updateInfo = false;
 
   const plugin_name = "MetricsMonitor";
@@ -935,173 +935,562 @@ function syncTextWebSocketMode(isInitial) {
         }
     });
   }
+ 
+const CC_COLOR_SIGNAL = 'rgba(58, 123, 213, 0.9)';
+const CC_COLOR_ACI    = 'rgba(0, 255, 0, 0.65)';
+const CC_COLOR_CCI    = 'rgba(255, 255,0, 0.65)';
+const CC_BG           = 'transparent';
 
-  function replaceMainCanvasIfRequired() {
-    if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4)) return;
+// 100% graph height = 30 dBµV = 40.875 dBf = -78.875 dBm
+const CC_SIGNAL_PEAK_DBF = 40.875; 
 
-    const canvasContainer = document.querySelector(".canvas-container.hide-phone");
-    if (!canvasContainer) return;
+function drawChannelCondition(canvas, signalDbf, aciPct, aciRaw, cciPct, cciRaw, mpPct) {
+  const ctx = canvas.getContext('2d');
+  const W   = canvas.width;
+  const H   = canvas.height;
+  ctx.clearRect(0, 0, W, H);
 
-    if (document.getElementById("mm-signal-analyzer-flex")) {
-        if (isCanvasVisible && activeCanvasMode === 4) document.getElementById("mm-signal-analyzer-flex").style.display = 'flex';
-        return;
+  const maxH = H * 0.85;
+
+  const sigDbf    = Math.max(0, Number(signalDbf) || 0);
+  const sigHeight = Math.min(maxH, (sigDbf / CC_SIGNAL_PEAK_DBF) * maxH);
+
+  const aciH = (aciPct >= 0) ? Math.min(maxH, maxH * (aciPct / 100)) : 0;
+  const cciH = (cciPct >= 0) ? Math.min(maxH, maxH * (cciPct / 100)) : 0;
+
+  function drawShape(x0, x1, peakY, color, mirror, flatWidth) {
+    const base = H;
+    ctx.beginPath();
+    
+    if (!mirror) {
+      ctx.moveTo(x0, base);
+      ctx.lineTo(x0, peakY);
+      ctx.lineTo(x0 + flatWidth, peakY);
+      const cp1x = x0 + flatWidth + (x1 - (x0 + flatWidth)) * 0.4;
+      const cp1y = peakY;
+      const cp2x = x0 + flatWidth + (x1 - (x0 + flatWidth)) * 0.4;
+      const cp2y = base;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x1, base);
+    } else {
+      ctx.moveTo(x1, base);
+      ctx.lineTo(x1, peakY);
+      ctx.lineTo(x1 - flatWidth, peakY);
+      const cp1x = x1 - flatWidth - ((x1 - flatWidth) - x0) * 0.4;
+      const cp1y = peakY;
+      const cp2x = x1 - flatWidth - ((x1 - flatWidth) - x0) * 0.4;
+      const cp2y = base;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x0, base);
+    }
+    
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  const sigX0 = 0;
+  const sigX1 = W * 0.50; // 100% mark for the Signal Peak and Multipath
+  const sigFlatW = W * 0.15;
+  
+  const aciX0 = 0;
+  const aciX1 = W * 0.70;
+  const aciFlatW = W * 0.35;
+  
+  const cciX0 = W * 0.60;
+  const cciX1 = W;
+  const cciFlatW = W * 0.10;
+
+  // 1. ACI in the background
+  if (aciPct >= 0 && aciH > 1) {
+    drawShape(aciX0, aciX1, H - aciH, CC_COLOR_ACI, false, aciFlatW);
+  }
+
+  // 2. Blue Signal
+  drawShape(sigX0, sigX1, H - sigHeight, CC_COLOR_SIGNAL, false, sigFlatW);
+
+  // 3. Red Multipath Overlay (clipped to the calculated % width of the blue signal)
+  if (mpPct > 0) {
+    ctx.save();
+    const mpWidth = sigX1 * (Math.min(100, mpPct) / 100);
+    ctx.beginPath();
+    ctx.rect(0, 0, mpWidth, H);
+    ctx.clip(); // Limit the drawing area to mpWidth
+    
+    // Draw red color using the same shape as the blue signal
+    drawShape(sigX0, sigX1, H - sigHeight, 'rgba(255, 0, 0, 0.75)', false, sigFlatW);
+    ctx.restore();
+
+    // Fix label (MP) aligned to the left
+    ctx.fillStyle = 'rgba(255, 60, 60, 1)';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    const textX = 2; // Fixed distance from the left edge
+    
+    // Only show text if the bar has a visible width
+    if (mpWidth > 0) {
+        ctx.fillText('MP ' + Math.round(mpPct) + '%', textX, Math.max(10, H - Math.max(sigHeight, 15) - 5));
+    }
+  }
+
+  // 4. CCI
+  if (cciPct >= 0 && cciH > 1) {
+    drawShape(cciX0, cciX1, H - cciH, CC_COLOR_CCI, true, cciFlatW);
+  }
+
+  // Bottom line
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, H - 1);
+  ctx.lineTo(W, H - 1);
+  ctx.stroke();
+}
+
+
+function replaceMainCanvasIfRequired() {
+  if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 4)) return;
+
+  const canvasContainer = document.querySelector(".canvas-container.hide-phone");
+  if (!canvasContainer) return;
+
+  if (document.getElementById("mm-signal-analyzer-flex")) {
+      if (isCanvasVisible && activeCanvasMode === 4) document.getElementById("mm-signal-analyzer-flex").style.display = 'flex';
+      return;
+  }
+
+  const INTERNAL_HEIGHT = 160;
+  const CC_CANVAS_W = 170;
+  const SIGNAL_BOX_W = 125;
+  const COL_GAP = 15;
+  const LEFT_COL_W = CC_CANVAS_W + COL_GAP; 
+
+  const CUSTOM_CSS = `
+    #mm-signal-analyzer-flex{
+      display: none;
+      align-items:stretch;
+      width:100%;
+      height:${INTERNAL_HEIGHT}px !important;
+      min-height:${INTERNAL_HEIGHT}px !important;
+      background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+      border:1px solid rgba(255,255,255,0.45);
+      border-radius:0px;
+      overflow:hidden;
+      box-sizing:border-box;
+      transform-origin: top center;
+      position: relative;
+      z-index: 5;
+      transform: translate(10px, -10px);
+      margin-bottom: -20px;
+    }
+    
+    /* LEFT COLUMN: ACI/CCI Canvas */
+    #mm-signal-left-col { 
+      width: ${LEFT_COL_W}px;
+      min-width: ${LEFT_COL_W}px;
+      display:flex; 
+      flex-direction: row;
+      align-items:center; 
+      padding:12px; 
+      box-sizing:border-box; 
+      border-right: 1px solid rgba(255,255,255,0.15) !important;
+    }
+    
+    /* Channel Condition Canvas overlay styles */
+    #mm-cc-wrapper {
+      display: flex;
+      flex-direction: column;
+      width: ${CC_CANVAS_W}px;
+      min-width: ${CC_CANVAS_W}px;
+      height: 100%;
+      margin-left: -5px;
+      background: transparent;
+      border: 0px solid rgba(255,255,255,0.45);
+      border-radius: 0px;
+      overflow: hidden;
+    }
+    #mm-cc-canvas {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #mm-cc-labels {
+      display: flex;
+      flex-direction: row;
+      width: 105%;
+      margin-left: 2px;
+      padding: 4px 0;
+    }
+    .cc-label-col {
+      flex: 1;
+      text-align: center;
+      line-height: 1.2;
+    }
+    .cc-label-title {
+      color: #ccc;
+      font-size: 11px;
+      display: block;
+    }
+    .cc-label-value {
+      color: #fff;
+      font-size: 13px;
+      display: block;
     }
 
-    const INTERNAL_HEIGHT = 160;
-    const SIGNAL_COL_W = 180;
-    const SIGNAL_BOX_W = 180;
+    /* CENTER COLUMN: Signal Graph */
+    #main-signal-analyzer-container { 
+      position:relative; 
+      flex:1; 
+      height:110%; 
+      padding:0px 6px 12px 12px; 
+      overflow:hidden; 
+      justify-content:center; 
+      box-sizing:border-box; 
+      border:none !important; 
+      outline:none !important; 
+      box-shadow: inset 1px 0 0 rgba(255,255,255,0.10) !important; 
+    }
+    #main-signal-analyzer-container [data-mm-signal-analyzer-wrap], 
+    #main-signal-analyzer-container [data-mm-signal-analyzer-canvas], 
+    #main-signal-analyzer-container canvas { 
+      height:100%; 
+      display:block; 
+      border:none !important; 
+      outline:none !important; 
+      box-shadow:none !important; 
+    }
 
-    const CUSTOM_CSS = `
-      #mm-signal-analyzer-flex{
-        display: none;
-        align-items:stretch;
-        width:100%;
-        height:${INTERNAL_HEIGHT}px !important;
-        min-height:${INTERNAL_HEIGHT}px !important;
-        background: linear-gradient(180deg, #071c33 0%, #041425 100%);
-        border:1px solid rgba(255,255,255,0.45);
-        border-radius:0px;
-        overflow:hidden;
-        box-sizing:border-box;
-        transform-origin: top center;
-        position: relative;
-        z-index: 5;
-        transform: translate(10px, -10px);
-        margin-bottom: -20px;
+    /* RIGHT COLUMN: Signal Box (matches Signal Meter Module) */
+    #mm-signal-right-col {
+      width: ${SIGNAL_BOX_W}px;
+      min-width: ${SIGNAL_BOX_W}px;
+      flex: 0 0 ${SIGNAL_BOX_W}px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      border-left: 1px solid rgba(255,255,255,0.1);
+      padding: 8px 6px;
+      background: linear-gradient(180deg, #071c33 0%, #041425 100%);
+    }
+    
+    .cv-signal-heading {
+      display: block;
+      text-align: center;
+      width: 100%;
+      color: #3A8BCC;
+      font-size: 24px;
+      margin-top: 0px;
+      margin-bottom: 4px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    
+    .cv-highest-container {
+      color: #aaa;
+      font-size: 10px;
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+    }
+
+    .cv-signal-big {
+      text-align: center;
+      line-height: 1.1;
+      margin-top: -4px;
+      width: 100%;
+      display: block;
+    }
+    
+    #cv-signal-main {
+      font-size: 38px !important;
+      font-weight: 300; 
+      color: #fff;
+    }
+    
+    #cv-signal-decimal {
+      font-size: 26px !important;
+      font-weight: 300;
+      opacity: 0.7;
+      color: #fff;
+    }
+    
+    .cv-signal-unit {
+      display: block;
+      margin-top: -2px;
+      font-size: 14px !important;
+      line-height: 1.2;
+      color: #888;
+      text-align: center;
+      width: 100%;
+    }
+    
+    .cv-multipath-container {
+       margin-top: 16px;
+       font-size: 13px;
+       color: #3A8BCC;
+       text-align: center;
+       display: block; /* always block to prevent jumping layout */
+       font-weight: bold;
+    }
+    .cv-multipath-container span {
+       color: #fff;
+       font-weight: normal;
+    }
+  `;
+  let style = document.getElementById("metrics-signal-analyzer-css");
+  if (!style) { style = document.createElement("style"); style.id = "metrics-signal-analyzer-css"; document.head.appendChild(style); }
+  style.textContent = CUSTOM_CSS;
+
+  const flex = document.createElement("div");
+  flex.id = "mm-signal-analyzer-flex";
+  flex.style.display = (isCanvasVisible && activeCanvasMode === 4) ? "flex" : "none";
+  canvasContainer.appendChild(flex);
+
+  // --- LEFT COLUMN (ACI/CCI Canvas) ---
+  const leftCol = document.createElement("div");
+  leftCol.id = "mm-signal-left-col";
+  flex.appendChild(leftCol);
+
+  const ccWrapper = document.createElement('div');
+  ccWrapper.id = "mm-cc-wrapper";
+
+  const ccCanvas = document.createElement('canvas');
+  ccCanvas.id = "mm-cc-canvas";
+
+  const ccLabels = document.createElement('div');
+  ccLabels.id = "mm-cc-labels";
+
+  const labelEls = {};
+  ['signal', 'aci', 'cci'].forEach((key) => {
+    const col = document.createElement('div');
+    col.className = 'cc-label-col';
+
+    const title = document.createElement('span');
+    title.className = 'cc-label-title';
+    title.textContent = key.toUpperCase();
+
+    const value = document.createElement('span');
+    value.className = 'cc-label-value';
+    value.textContent = '---';
+    labelEls[key] = value;
+
+    col.appendChild(title);
+    col.appendChild(value);
+    ccLabels.appendChild(col);
+  });
+
+  ccWrapper.appendChild(ccCanvas);
+  ccWrapper.appendChild(ccLabels);
+  leftCol.appendChild(ccWrapper);
+
+  // --- CENTER COLUMN (Chart Canvas) ---
+  const analyzerHost = document.createElement("div");
+  analyzerHost.id = "main-signal-analyzer-container";
+  flex.appendChild(analyzerHost);
+
+  // --- RIGHT COLUMN (Signal Panel) ---
+  const rightCol = document.createElement("div");
+  rightCol.id = "mm-signal-right-col";
+  flex.appendChild(rightCol);
+
+  rightCol.innerHTML = `
+      <div style="width:100%; transition: transform 0.3s ease; padding-top: 5px;" id="cv-signal-values-wrapper" data-mm-signal="values-wrapper">
+        <h2 class="cv-signal-heading">SIGNAL</h2>
+        <div class="cv-highest-container">
+          <i class="fa-solid fa-arrow-up" style="font-size:10px; margin-right: 4px;"></i>
+          <span id="cv-signal-highest" data-mm-signal="highest">---</span>&nbsp;
+          <span class="cv-signal-unit-small signal-units">dBf</span>
+        </div>
+        <div class="cv-signal-big">
+          <span id="cv-signal-main" data-mm-signal="main">--</span><!--
+       --><span id="cv-signal-decimal" data-mm-signal="decimal">.-</span>
+        </div>
+        <div class="cv-signal-unit signal-units">dBf</div>
+      </div>
+      <div id="cv-multipath" class="cv-multipath-container" data-mm-signal="multipath-container">
+        Multipath: <span id="cv-multipath-val" data-mm-signal="multipath-value">--%</span>
+      </div>
+  `;
+
+  // Setup rendering for Channel Condition Canvas
+  let ccRafId = null;
+  
+  // Variables for slow graphic decay & attack
+  let smoothedSignal = 0;
+  let smoothedAci = 0;
+  let smoothedCci = 0;
+  let smoothedMp = 0;
+  const ATTACK_FACTOR = 0.25; // Slower rise
+  const DECAY_FACTOR = 0.08;  // Slower fall
+  
+  function renderChannelCondition() {
+      if (!flex.isConnected) { ccRafId = null; return; }
+
+      const dpr = window.devicePixelRatio || 1;
+      const dispW = ccCanvas.clientWidth || ccCanvas.width / dpr;
+      const dispH = ccCanvas.clientHeight || ccCanvas.height / dpr;
+
+      if (Math.round(dispW * dpr) !== ccCanvas.width || Math.round(dispH * dpr) !== ccCanvas.height) {
+          ccCanvas.width = Math.round(dispW * dpr);
+          ccCanvas.height = Math.round(dispH * dpr);
+          const ctx = ccCanvas.getContext('2d');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
-      #mm-signal-col{ width:${SIGNAL_COL_W}px; min-width:${SIGNAL_COL_W}px; padding:12px 12px 12px 14px; display:flex; align-items:stretch; justify-content:stretch; box-sizing:border-box; border-right: none !important; }
-      #mm-signal-box{ width:${SIGNAL_BOX_W}px; max-width:100%; flex:1; padding:40px 14px 12px 12px; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
-      #mm-signal-analyzer-flex .signal-panel-layout .signal-heading{ align-self:flex-start; width:100%; padding-left:12px; box-sizing:border-box; margin:0; position:relative; top:-30px; line-height:1; }
-      #mm-signal-analyzer-flex .signal-panel-layout .highest-signal-container{ align-self:flex-start; width:100%; padding-left:12px; box-sizing:border-box; margin-top:-18px; margin-bottom:16px; line-height:1; }
-      #mm-signal-analyzer-flex .signal-panel-layout .text-big { flex-direction:column; align-items:center; text-align:center; line-height:1.05; margin-top:20px; margin-left:-2px; width:100%; }
-      #main-signal-analyzer-container{ position:relative; flex:1; height:110%; padding:0px 6px 12px 12px; overflow:hidden; justify-content:center; box-sizing:border-box; border:none !important; outline:none !important; box-shadow: inset 1px 0 0 rgba(255,255,255,0.10) !important; }
-      #main-signal-analyzer-container [data-mm-signal-analyzer-wrap], #main-signal-analyzer-container [data-mm-signal-analyzer-canvas], #main-signal-analyzer-container canvas{ height:100%; display:block; border:none !important; outline:none !important; box-shadow:none !important; }
-    `;
-    let style = document.getElementById("metrics-signal-analyzer-css");
-    if (!style) { style = document.createElement("style"); style.id = "metrics-signal-analyzer-css"; document.head.appendChild(style); }
-    style.textContent = CUSTOM_CSS;
 
-    const flex = document.createElement("div");
-    flex.id = "mm-signal-analyzer-flex";
-    flex.style.display = (isCanvasVisible && activeCanvasMode === 4) ? "flex" : "none";
-    canvasContainer.appendChild(flex);
+      let aci = -1;
+      let cci = -1;
+      let mpTarget = 0;
+      let signalDisplay = "---";
+      let baseDbf = 0;
 
-    const signalCol = document.createElement("div");
-    signalCol.id = "mm-signal-col";
-    flex.appendChild(signalCol);
+      // 1. Process Signal Data natively
+      if (window.MetricsSignalMeter && window.MetricsSignalMeter.levels) {
+           const hfValue = window.MetricsSignalMeter.levels.hfValue;
+           baseDbf = (typeof window.MetricsSignalMeter.levels.hfBase === 'number' && !isNaN(window.MetricsSignalMeter.levels.hfBase)) 
+                      ? window.MetricsSignalMeter.levels.hfBase : 0;
+           
+           const currentUnit = (window.MetricsMonitor && typeof window.MetricsMonitor.getSignalUnit === 'function') ? window.MetricsMonitor.getSignalUnit() : "dbf";
+           let displayUnit = currentUnit.toLowerCase() === 'dbuv' ? 'dBµV' : 
+                             currentUnit.toLowerCase() === 'dbm' ? 'dBm' : 'dBf';
 
-    const signalBox = document.createElement("div");
-    signalBox.id = "mm-signal-box";
-    signalCol.appendChild(signalBox);
+           signalDisplay = (typeof hfValue === 'number' && !isNaN(hfValue)) ? hfValue.toFixed(1) + " " + displayUnit : "---";
+      }
 
-    const signalPanel = document.createElement("div");
-    signalPanel.className = "panel-33 no-bg-phone signal-panel-layout";
-    signalPanel.innerHTML = `
-        <h2 class="signal-heading">${t('plugin.metricsMonitor.SIGNAL')}</h2>
-        <div class="text-small text-gray highest-signal-container">
-          <i class="fa-solid fa-arrow-up"></i>
-          <span id="data-signal-highest"></span>
-          <span class="signal-units"></span>
-        </div>
-        <div class="text-big">
-          <span id="data-signal"></span><!--
-       --><span id="data-signal-decimal" class="text-medium-big" style="opacity:0.7;"></span>
-          <span class="signal-units text-medium">dBf</span>
-        </div>
-    `;
-    signalBox.appendChild(signalPanel);
+      // 2. Pull ACI, CCI, and Multipath directly from the HUB to ensure they are always captured even if the Signal Meter Module is off
+      if (window.__MM_SIGNALMETER_HUB__) {
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestAci === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestAci)) {
+              aci = window.__MM_SIGNALMETER_HUB__.latestAci;
+          }
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestCci === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestCci)) {
+              cci = window.__MM_SIGNALMETER_HUB__.latestCci;
+          }
+          if (typeof window.__MM_SIGNALMETER_HUB__.latestMultipath === 'number' && !isNaN(window.__MM_SIGNALMETER_HUB__.latestMultipath)) {
+              mpTarget = window.__MM_SIGNALMETER_HUB__.latestMultipath;
+          }
+      }
 
-    signalPanel.style.background = "none";
-    signalPanel.style.border = "none";
-    signalPanel.style.boxShadow = "none";
-    signalPanel.style.margin = "0";
-    signalPanel.style.padding = "0";
-    signalPanel.style.height = "100%";
-    signalPanel.style.display = "flex";
-    signalPanel.style.flexDirection = "column";
-    signalPanel.style.justifyContent = "center";
-    signalPanel.style.alignItems = "flex-start";
+      // Fallbacks just in case the HUB didn't have them
+      if (aci === -1 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels && typeof window.MetricsSignalMeter.levels.aci === 'number') {
+          aci = window.MetricsSignalMeter.levels.aci;
+      }
+      if (cci === -1 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels && typeof window.MetricsSignalMeter.levels.cci === 'number') {
+          cci = window.MetricsSignalMeter.levels.cci;
+      }
+      if (mpTarget === 0 && window.MetricsSignalMeter && window.MetricsSignalMeter.levels) {
+          let mpRaw = window.MetricsSignalMeter.levels.multipath !== undefined ? window.MetricsSignalMeter.levels.multipath : window.MetricsSignalMeter.levels.mp;
+          if (typeof mpRaw === 'number' && !isNaN(mpRaw)) mpTarget = mpRaw;
+      }
 
+      // Ensure valid boundaries
+      aci = (aci >= 0 && !isNaN(aci)) ? aci : -1;
+      cci = (cci >= 0 && !isNaN(cci)) ? cci : -1;
+
+      // Calculate smoothed graphics values (sluggish attack and decay)
+      if (baseDbf > smoothedSignal) smoothedSignal += (baseDbf - smoothedSignal) * ATTACK_FACTOR;
+      else smoothedSignal += (baseDbf - smoothedSignal) * DECAY_FACTOR;
+
+      let targetAci = aci >= 0 ? aci : 0;
+      if (targetAci > smoothedAci) smoothedAci += (targetAci - smoothedAci) * ATTACK_FACTOR;
+      else smoothedAci += (targetAci - smoothedAci) * DECAY_FACTOR;
+
+      let targetCci = cci >= 0 ? cci : 0;
+      if (targetCci > smoothedCci) smoothedCci += (targetCci - smoothedCci) * ATTACK_FACTOR;
+      else smoothedCci += (targetCci - smoothedCci) * DECAY_FACTOR;
+      
+      if (mpTarget > smoothedMp) smoothedMp += (mpTarget - smoothedMp) * ATTACK_FACTOR;
+      else smoothedMp += (mpTarget - smoothedMp) * DECAY_FACTOR;
+
+      // Draw graph with smoothed variables
+      drawChannelCondition(ccCanvas, smoothedSignal, smoothedAci, aci, smoothedCci, cci, smoothedMp);
+
+      // Update text labels
+      if (labelEls.signal) labelEls.signal.textContent = signalDisplay;
+      if (labelEls.aci) labelEls.aci.textContent = (aci >= 0) ? `${aci}%` : "---";
+      if (labelEls.cci) labelEls.cci.textContent = (cci >= 0) ? `${cci}%` : "---";
+
+      ccRafId = requestAnimationFrame(renderChannelCondition);
+  }
+  ccRafId = requestAnimationFrame(renderChannelCondition);
+
+  const applyCanvasSizingAndRemoveInnerBorder = () => {
+    const container = document.getElementById("main-signal-analyzer-container");
+    const canvas = container ? container.querySelector('canvas[data-mm-signal-analyzer-canvas], canvas') : null;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     try {
-      if (window.MetricsMonitor?.onSignalUnitChange) {
-        window.MetricsMonitor.onSignalUnitChange((unit) => {
-          signalBox.querySelectorAll(".signal-units").forEach((el) => (el.textContent = String(unit || "").toLowerCase()));
-        });
-        if (window.MetricsMonitor.getSignalUnit) {
-          const u = window.MetricsMonitor.getSignalUnit();
-          if (u) signalBox.querySelectorAll(".signal-units").forEach((el) => (el.textContent = String(u).toLowerCase()));
+      if (typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
+        const ch = Chart.getChart(canvas);
+        if (ch?.options?.scales) {
+          ["x", "y"].forEach((ax) => {
+            const s = ch.options.scales[ax];
+            if (!s) return;
+            s.border = Object.assign({}, s.border || {}, { display: false });
+            if (s.grid) s.grid.drawBorder = false;
+            if (s.grid) { s.grid.borderColor = "rgba(0,0,0,0)"; s.grid.borderWidth = 0; }
+          });
+          ch.update("none");
         }
       }
     } catch (e) {}
+  };
 
-    const analyzerHost = document.createElement("div");
-    analyzerHost.id = "main-signal-analyzer-container";
-    flex.appendChild(analyzerHost);
-
-    const applyCanvasSizingAndRemoveInnerBorder = () => {
-      const container = document.getElementById("main-signal-analyzer-container");
-      const canvas = container ? container.querySelector('canvas[data-mm-signal-analyzer-canvas], canvas') : null;
-      if (!canvas || !container) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      const ctx = canvas.getContext("2d");
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      try {
-        if (typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
-          const ch = Chart.getChart(canvas);
-          if (ch?.options?.scales) {
-            ["x", "y"].forEach((ax) => {
-              const s = ch.options.scales[ax];
-              if (!s) return;
-              s.border = Object.assign({}, s.border || {}, { display: false });
-              if (s.grid) s.grid.drawBorder = false;
-              if (s.grid) { s.grid.borderColor = "rgba(0,0,0,0)"; s.grid.borderWidth = 0; }
+  const tryInit = (attempt = 0) => {
+    const analyzer = window.MetricsSignalAnalyzer;
+    if (!analyzer || typeof analyzer.init !== "function" || !window.MetricsSignalMeter) {
+      if (attempt < 25) return setTimeout(() => tryInit(attempt + 1), 200);
+      return;
+    }
+    
+    // Independently hook a text-only meter instance to the right panel so it continues to read data even when Module 3 is disabled
+    if (typeof window.MetricsSignalMeter.createInstance === "function") {
+        if (!window.mmSignalMeterCanvas4Inst) {
+            window.mmSignalMeterCanvas4Inst = window.MetricsSignalMeter.createInstance("mm-signal-right-col", {
+                instanceKey: "canvas4-signal-meter",
+                textOnly: true,
+                bindExisting: false
             });
-            ch.update("none");
-          }
         }
-      } catch (e) {}
-    };
+    }
 
-    const tryInit = (attempt = 0) => {
-      const analyzer = window.MetricsSignalAnalyzer;
-      if (!analyzer || typeof analyzer.init !== "function") {
-        if (attempt < 25) return setTimeout(() => tryInit(attempt + 1), 200);
-        return;
-      }
-      let canvasSigAnalyzerInstance = null;
-      if (typeof analyzer.createInstance === "function") {
-        canvasSigAnalyzerInstance = analyzer.createInstance({
-          containerId: "main-signal-analyzer-container",
-          instanceKey: "canvas4",
-          embedded: true,
-          useLegacyCss: false,
-          hideValueAndUnit: true
-        });
-      } else {
-        analyzer.init("main-signal-analyzer-container");
-      }
-      if (window.MetricsSignalMeter && typeof window.MetricsSignalMeter.startDataListener === "function") window.MetricsSignalMeter.startDataListener();
+    let canvasSigAnalyzerInstance = null;
+    if (typeof analyzer.createInstance === "function") {
+      canvasSigAnalyzerInstance = analyzer.createInstance({
+        containerId: "main-signal-analyzer-container",
+        instanceKey: "canvas4",
+        embedded: true,
+        useLegacyCss: false,
+        hideValueAndUnit: true
+      });
+    } else {
+      analyzer.init("main-signal-analyzer-container");
+    }
+    if (typeof window.MetricsSignalMeter.startDataListener === "function") window.MetricsSignalMeter.startDataListener();
+    setTimeout(() => {
+      applyCanvasSizingAndRemoveInnerBorder();
+      (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
+    }, 0);
+    window.addEventListener("resize", () => {
+      (canvasSigAnalyzerInstance?.resize || analyzer.resize)?.();
       setTimeout(() => {
         applyCanvasSizingAndRemoveInnerBorder();
         (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
       }, 0);
-      window.addEventListener("resize", () => {
-        (canvasSigAnalyzerInstance?.resize || analyzer.resize)?.();
-        setTimeout(() => {
-          applyCanvasSizingAndRemoveInnerBorder();
-          (canvasSigAnalyzerInstance?.redraw || analyzer.redraw)?.(true);
-        }, 0);
-      });
-    };
-    tryInit();
-  }
-
+    });
+  };
+  tryInit();
+}
+  
 function replaceMainCanvasWithScopeIfRequired(forceReinit = false) {
     if (!Array.isArray(CONFIG.CANVAS_SEQUENCE) || !CONFIG.CANVAS_SEQUENCE.some(v => Number(v) === 5)) return;
 
