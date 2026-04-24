@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////
 //                                                           //
-//  metricsmonitor-scope.js                         (V2.7)   //
+//  metricsmonitor-scope.js                         (V2.8)   //
 //                                                           //
-//  by Highpoint               last update: 09.04.2026       //
+//  by Highpoint               last update: 14.04.2026       //
 //                                                           //
 //  Thanks for support by                                    //
 //  Jeroen Platenkamp, Bkram, Wötkylä, AmateurAudioDude      //
@@ -243,24 +243,35 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   block.appendChild(wrap);
   parent.appendChild(block);
 
-  // Mode label (bottom-left, non-clickable)
-  const modeLabel = document.createElement("div");
-  modeLabel.id = `mpx-mode-label-${instanceKey}`;
-  modeLabel.title = "Oscilloscope view";
-  modeLabel.style.cssText = `
-    position: absolute; bottom: 15px; left: 8px;
-    color: rgba(255, 255, 255, 0.85);
-    font-family: Arial, sans-serif; font-size: 12px;
-    cursor: default; z-index: 50; user-select: none;
+  // Mode labels (bottom-left)
+  const modeWrap = document.createElement("div");
+  modeWrap.style.cssText = `
+    position: absolute; bottom: 9px; left: 8px;
+    display: flex; gap: 14px; align-items: baseline; z-index: 50;
+    font-family: Arial, sans-serif; font-size: 12px; line-height: 1;
+    user-select: none;
   `;
-  modeLabel.innerText = "Oscilloscope";
-  block.appendChild(modeLabel);
+  const scopeLabel = document.createElement("div");
+  scopeLabel.id = `mpx-scope-label-${instanceKey}`;
+  scopeLabel.innerText = "Oscilloscope";
+  scopeLabel.style.cssText = "cursor: pointer; transition: color 0.3s ease;";
 
-  const ctx = canvas.getContext("2d");
+  const waveformLabel = document.createElement("div");
+  waveformLabel.id = `mpx-waveform-label-${instanceKey}`;
+  waveformLabel.innerText = "Waveform";
+  waveformLabel.style.cssText = "cursor: pointer; transition: color 0.3s ease;";
+
+  modeWrap.appendChild(scopeLabel);
+  modeWrap.appendChild(waveformLabel);
+  block.appendChild(modeWrap);
+
+  const ctx = canvas.getContext("2d", { alpha: false });
 
   //////////////////////////////////////////////////////////////////
   // Scope state
   //////////////////////////////////////////////////////////////////
+  let displayMode = "scope"; // "scope" or "waveform"
+
   let scopeWave = [];
   const SCOPE_SAMPLES = 1024;
   const SCOPE_GAIN = 1.0;
@@ -307,6 +318,56 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   const BOTTOM_MARGIN = 14;
   const OFFSET_X = 32;
   const Y_STRETCH = 0.8;
+
+  // Waveform specific state
+  const WAVEFORM_SECONDS = 25;
+  let waveformBars = [];
+  let waveformLastPush = 0;
+  let latestWaveformBar = { min: 0, max: 0 };
+  let pageWasHidden = false;
+
+  //////////////////////////////////////////////////////////////////
+  // Mode toggle UI
+  //////////////////////////////////////////////////////////////////
+  function updateModeButtons() {
+    if (displayMode === "scope") {
+      scopeLabel.style.color = "rgba(0, 255, 255, 0.8)"; // Cyan (Active)
+      waveformLabel.style.color = "rgba(255, 255, 255, 0.75)"; // Inactive (Matches Hz text)
+    } else {
+      waveformLabel.style.color = "rgba(0, 255, 255, 0.8)"; // Cyan (Active)
+      scopeLabel.style.color = "rgba(255, 255, 255, 0.75)"; // Inactive (Matches Hz text)
+    }
+  }
+
+  function toggleDisplayMode(mode = null) {
+    if (mode === "scope" || mode === "waveform") {
+      displayMode = mode;
+    } else {
+      displayMode = (displayMode === "scope") ? "waveform" : "scope";
+    }
+    
+    if (displayMode === "waveform") {
+        waveformBars = [];
+        waveformLastPush = performance.now();
+        latestWaveformBar = { min: 0, max: 0 };
+    }
+    
+    updateModeButtons();
+  }
+
+  scopeLabel.addEventListener("click", (e) => { e.stopPropagation(); toggleDisplayMode("scope"); });
+  waveformLabel.addEventListener("click", (e) => { e.stopPropagation(); toggleDisplayMode("waveform"); });
+  updateModeButtons();
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      pageWasHidden = true;
+    } else if (pageWasHidden) {
+      waveformLastPush = performance.now();
+      pageWasHidden = false;
+    }
+  }
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   //////////////////////////////////////////////////////////////////
   // Zoom helpers
@@ -425,15 +486,16 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   }
 
   function drawMagnifierIcon() {
-    const x = canvas.clientWidth / 2;
-    const y = canvas.clientHeight - 13;
+    // Offset by +40 pixels to physically center it between the left labels and right text
+    const x = (canvas.clientWidth / 2) + 40; 
+    const y = canvas.clientHeight - 10;
     magnifierArea = { x: x - 10, y: y - 10, width: 20, height: 16 };
     const color = "rgba(143, 234, 255, 0.8)";
     ctx.save();
-    ctx.font = "11px Arial";
+    ctx.font = "12px Arial"; // Adjusted to 12px to match
     ctx.fillStyle = color;
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    ctx.textBaseline = "alphabetic"; // Align baseline with 192000 Hz
     ctx.fillText("1.0x", x, y);
     ctx.restore();
   }
@@ -451,7 +513,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     const centerY = TOP_MARGIN + 0.5 * usableHeight * Y_STRETCH;
     ctx.strokeStyle = "rgba(255,255,255,0.3)";
     ctx.beginPath();
-    ctx.moveTo(0, centerY);
+    ctx.moveTo(OFFSET_X, centerY);
     ctx.lineTo(logicalWidth, centerY);
     ctx.stroke();
 
@@ -536,6 +598,56 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     ctx.restore();
   }
 
+  function drawWaveform(bars) {
+      if (!bars || bars.length < 1) return;
+
+      const logicalWidth = canvas.clientWidth;
+      const logicalHeight = canvas.clientHeight;
+      const usableHeight = logicalHeight - TOP_MARGIN - BOTTOM_MARGIN;
+      const usableWidth = logicalWidth - OFFSET_X;
+      const centerY = TOP_MARGIN + 0.5 * usableHeight * Y_STRETCH;
+      const scaleY = (usableHeight * Y_STRETCH / 2.0) * zoomLevelY; 
+
+      const visibleSampleCount = visibleEnd - visibleStart;
+      const barWidth = Math.max(1, zoomLevel);
+
+      ctx.save();
+
+      // Pass 1: Outer Glow (matches oscilloscope color #8feaff but subtle)
+      ctx.fillStyle = "rgba(143, 234, 255, 0.15)";
+      for (let i = 0; i < bars.length; i++) {
+          const virtualI = (i / usableWidth) * SCOPE_SAMPLES;
+          if (virtualI < visibleStart - 10 || virtualI > visibleEnd + 10) continue;
+
+          const px = OFFSET_X + ((virtualI - visibleStart) / visibleSampleCount) * usableWidth;
+          
+          const bar = bars[i];
+          const y0 = centerY - bar.min * scaleY;
+          const y1 = centerY - bar.max * scaleY;
+          const height = Math.max(1, Math.abs(y1 - y0));
+          const y = Math.min(y0, y1);
+          ctx.fillRect(px - 1, y - 1, barWidth + 2, height + 2);
+      }
+
+      // Pass 2: Inner Core (exact oscilloscope color #8feaff with 85% opacity)
+      ctx.fillStyle = "rgba(143, 234, 255, 0.85)";
+      for (let i = 0; i < bars.length; i++) {
+          const virtualI = (i / usableWidth) * SCOPE_SAMPLES;
+          if (virtualI < visibleStart - 10 || virtualI > visibleEnd + 10) continue;
+
+          const px = OFFSET_X + ((virtualI - visibleStart) / visibleSampleCount) * usableWidth;
+
+          const bar = bars[i];
+          const y0 = centerY - bar.min * scaleY;
+          const y1 = centerY - bar.max * scaleY;
+          const height = Math.max(1, Math.abs(y1 - y0));
+          const y = Math.min(y0, y1);
+          ctx.fillRect(px, y, barWidth, height);
+      }
+      
+      ctx.restore();
+  }
+
   function drawScope() {
     if (!ctx || !canvas) return;
 
@@ -544,33 +656,64 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     drawBackground();
     drawGrid();
 
-    if (phosphorBuffer.length > 0) {
-      for (let i = 0; i < phosphorBuffer.length; i++) {
-        const alpha = (i === phosphorBuffer.length - 1)
-          ? 1.0
-          : ((i + 1) / phosphorBuffer.length) * 0.25;
-        drawScopeTrace(phosphorBuffer[i], alpha);
-      }
+    if (displayMode === "scope") {
+        if (phosphorBuffer.length > 0) {
+          for (let i = 0; i < phosphorBuffer.length; i++) {
+            const alpha = (i === phosphorBuffer.length - 1)
+              ? 1.0
+              : ((i + 1) / phosphorBuffer.length) * 0.25;
+            drawScopeTrace(phosphorBuffer[i], alpha);
+          }
+        } else {
+          ctx.save();
+          ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+          ctx.font = "italic 14px Arial";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("Waiting for Data...", canvas.clientWidth / 2, canvas.clientHeight / 2);
+          ctx.restore();
+        }
     } else {
-      ctx.save();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-      ctx.font = "italic 14px Arial";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("Waiting for Data...", canvas.clientWidth / 2, canvas.clientHeight / 2);
-      ctx.restore();
+        // Waveform mode
+        const usableWidth = Math.max(1, Math.floor(canvas.clientWidth - OFFSET_X));
+        const barsPerSec = usableWidth / WAVEFORM_SECONDS;
+        const stepInterval = 1000 / barsPerSec;
+        const now = performance.now();
+        if (!waveformLastPush) waveformLastPush = now;
+
+        while ((now - waveformLastPush) >= stepInterval) {
+            waveformBars.push({ ...latestWaveformBar });
+            waveformLastPush += stepInterval;
+            if (waveformBars.length > usableWidth) waveformBars.shift();
+        }
+
+        if (waveformBars.length > 0) {
+            drawWaveform(waveformBars);
+        } else {
+            ctx.save();
+            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.font = "italic 14px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("Waiting for Data...", canvas.clientWidth / 2, canvas.clientHeight / 2);
+            ctx.restore();
+        }
     }
 
+    // Draw Zoom Info for BOTH modes
     if (zoomLevel !== 1.0 || zoomLevelY > 1.0) {
       let infoText = "";
       if (zoomLevel !== 1.0 && zoomLevelY > 1.0) infoText = `X:${zoomLevel.toFixed(1)}x Y:${zoomLevelY.toFixed(1)}x`;
       else if (zoomLevel !== 1.0) infoText = `${zoomLevel.toFixed(1)}x`;
       else infoText = `Y:${zoomLevelY.toFixed(1)}x`;
 
+      const x = (canvas.clientWidth / 2) + 40; // Center in remaining space
+      
       ctx.fillStyle = "rgba(143, 234, 255, 0.8)";
-      ctx.font = "11px Arial";
+      ctx.font = "12px Arial"; // Match font size
       ctx.textAlign = "center";
-      ctx.fillText(infoText, canvas.clientWidth / 2, canvas.clientHeight - 10);
+      ctx.textBaseline = "alphabetic"; // Align baseline
+      ctx.fillText(infoText, x, canvas.clientHeight - 10);
     } else {
       drawMagnifierIcon();
     }
@@ -585,6 +728,17 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
   //////////////////////////////////////////////////////////////////
   // Data handler (Scope)
   //////////////////////////////////////////////////////////////////
+
+  function pushWaveformBar(sourceData) {
+      if (!sourceData || sourceData.length === 0) return;
+      let min = 1, max = -1;
+      for (let i = 0; i < sourceData.length; i++) {
+          const v = sourceData[i];
+          if (v < min) min = v;
+          if (v > max) max = v;
+      }
+      latestWaveformBar = { min, max };
+  }
 
   function handleMpxScope(msg) {
     if (!canvas || !canvas.isConnected) return;
@@ -602,6 +756,9 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
         if (v > globalScopeMax) globalScopeMax = v;
         if (v < globalScopeMin) globalScopeMin = v;
       }
+      
+      pushWaveformBar(sourceData);
+      
       // Update global MPX power calculation (shared across all instances)
       updateMpxPower(sourceData);
     }
@@ -620,7 +777,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
     globalScopeMin *= SCOPE_PEAK_DECAY;
 
     // Update phosphor buffer with latest wave data
-    if (scopeWave.length > 0) {
+    if (displayMode === "scope" && scopeWave.length > 0) {
       phosphorBuffer.push([...scopeWave]);
       if (phosphorBuffer.length > MAX_PHOSPHOR) phosphorBuffer.shift();
     }
@@ -806,6 +963,7 @@ function createScopeInstance(containerId = "level-meter-container", options = {}
 
   function destroy() {
     try { unsubscribe?.(); } catch (e) {}
+    try { document.removeEventListener("visibilitychange", handleVisibilityChange); } catch (e) {}
     if (animationId) cancelAnimationFrame(animationId);
     hideTooltip();
     try { parent.innerHTML = ""; } catch (e) {}
