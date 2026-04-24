@@ -783,7 +783,7 @@ document.head.appendChild(style);
       if (useLegacyIds) {
         signalPanel.innerHTML = `
           <div id="data-signal-values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
-            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.SIGNAL')}</h2>
+            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.signalHeading')}</h2>
             <div class="text-small text-gray highest-signal-container">
               <i class="fa-solid fa-arrow-up"></i>
               <span id="data-signal-highest"></span>
@@ -809,7 +809,7 @@ document.head.appendChild(style);
       } else {
         signalPanel.innerHTML = `
           <div data-mm-signal="values-wrapper" style="transition: transform 0.3s ease; width: 100%;">
-            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.SIGNAL')}</h2>
+            <h2 class="signal-heading" style="display: block !important;">${t('plugin.metricsMonitor.signalHeading')}</h2>
             <div class="text-small text-gray highest-signal-container">
               <i class="fa-solid fa-arrow-up"></i>
               <span data-mm-signal="highest"></span>
