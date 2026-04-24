@@ -1270,7 +1270,7 @@ function replaceMainCanvasIfRequired() {
 
     const title = document.createElement('span');
     title.className = 'cc-label-title';
-    title.textContent = key.toUpperCase();
+    title.textContent = t(`plugin.metricsMonitor.${key}`).toUpperCase();
 
     const value = document.createElement('span');
     value.className = 'cc-label-value';
@@ -1298,7 +1298,7 @@ function replaceMainCanvasIfRequired() {
 
   rightCol.innerHTML = `
       <div style="width:100%; transition: transform 0.3s ease; padding-top: 5px;" id="cv-signal-values-wrapper" data-mm-signal="values-wrapper">
-        <h2 class="cv-signal-heading">SIGNAL</h2>
+        <h2 class="cv-signal-heading">${t('plugin.metricsMonitor.signalHeading')}</h2>
         <div class="cv-highest-container">
           <i class="fa-solid fa-arrow-up" style="font-size:10px; margin-right: 4px;"></i>
           <span id="cv-signal-highest" data-mm-signal="highest">---</span>&nbsp;
@@ -1311,7 +1311,7 @@ function replaceMainCanvasIfRequired() {
         <div class="cv-signal-unit signal-units">dBf</div>
       </div>
       <div id="cv-multipath" class="cv-multipath-container" data-mm-signal="multipath-container">
-        Multipath: <span id="cv-multipath-val" data-mm-signal="multipath-value">--%</span>
+        ${t('plugin.metricsMonitor.multipath')}: <span id="cv-multipath-val" data-mm-signal="multipath-value">--%</span>
       </div>
   `;
 
